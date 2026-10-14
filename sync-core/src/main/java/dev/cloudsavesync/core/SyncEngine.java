@@ -5,6 +5,7 @@ import dev.cloudsavesync.core.archive.SnapshotArchiver;
 import dev.cloudsavesync.core.local.AtomicFiles;
 import dev.cloudsavesync.core.local.DeviceInfo;
 import dev.cloudsavesync.core.local.LocalState;
+import dev.cloudsavesync.core.local.SyncToggle;
 import dev.cloudsavesync.core.local.UnsyncedMarker;
 import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.model.CloudLayout;
@@ -237,6 +238,16 @@ public final class SyncEngine {
     public void recordSynced(long revision, String snapshotId) throws IOException {
         saveLocal(LocalState.NEVER_SYNCED.synced(revision, snapshotId, clock.instant()));
         marker.clear();
+        SyncToggle.set(paths, true);
+    }
+
+    /** Whether this world is synced on this device (worlds are opt-in). */
+    public boolean isSyncEnabled() throws IOException {
+        return SyncToggle.isEnabled(paths);
+    }
+
+    public void setSyncEnabled(boolean enabled) throws IOException {
+        SyncToggle.set(paths, enabled);
     }
 
     // ---------------------------------------------------------------- uploading
