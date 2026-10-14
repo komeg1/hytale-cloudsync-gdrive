@@ -19,6 +19,7 @@ import dev.cloudsavesync.core.local.UserDataLocator;
 import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.model.SessionLock;
 import dev.cloudsavesync.core.model.SnapshotInfo;
+import dev.cloudsavesync.core.model.WorldManifest;
 import dev.cloudsavesync.core.storage.ProgressListener;
 import dev.cloudsavesync.core.storage.RemoteFile;
 import dev.cloudsavesync.core.storage.StorageException;
@@ -787,6 +788,44 @@ public class CloudSyncPlugin extends JavaPlugin {
         if (added > 0) {
             messages.info((added == 1 ? "It" : "They") + " will be in your world list when you go back to the main"
                     + " menu. If not, restart the game.");
+        }
+    }
+
+    /** {@code /cloudsync keep [copies]}: show or set how many copies the cloud keeps. Runs on the io thread. */
+    void keepCopies(Integer copies) {
+        try {
+            if (copies == null) {
+                CloudState cloud = engine.fetch();
+                if (cloud.manifest() == null || cloud.manifest().head().isEmpty()) {
+                    messages.info("This world isn't in your Google Drive yet. Type /cloudsync enable to sync it.");
+                    return;
+                }
+                var m = cloud.manifest();
+                long bytes = m.snapshots().stream().mapToLong(SnapshotInfo::sizeBytes).sum();
+                long pinned = m.snapshots().stream().filter(SnapshotInfo::pinned).count();
+                messages.info("Google Drive keeps the " + m.keep() + " newest " + (m.keep() == 1 ? "copy" : "copies")
+                        + " of this world. Right now: " + m.snapshots().size() + " ("
+                        + PlayerMessages.megabytes(bytes) + ")" + (pinned == 0 ? "" : ", including " + pinned
+                        + " set aside in a conflict") + ". Change it with /cloudsync keep <1-"
+                        + WorldManifest.MAX_KEEP + ">.");
+                return;
+            }
+            SyncEngine.KeepResult r = engine.setKeep(copies);
+            messages.info("Google Drive will keep the " + r.keep() + " newest " + (r.keep() == 1 ? "copy" : "copies")
+                    + " of '" + paths.worldKey() + "' (for all your devices)."
+                    + (r.removed() == 0 ? "" : " Removed " + r.removed() + " older " + (r.removed() == 1 ? "copy" : "copies")
+                    + " (" + PlayerMessages.megabytes(r.freedBytes()) + ")."));
+            if (r.keep() == 1) {
+                messages.warn("With 1 copy there's no older version to go back to if a save goes wrong.");
+            }
+        } catch (StorageException e) {
+            if (e.kind() == StorageException.Kind.NOT_FOUND) {
+                messages.info("This world isn't in your Google Drive yet. Type /cloudsync enable to sync it.");
+            } else {
+                messages.warn("Couldn't reach Google Drive: " + e.getMessage());
+            }
+        } catch (IOException e) {
+            messages.error("Couldn't change the setting: " + e.getMessage());
         }
     }
 
