@@ -24,7 +24,7 @@ import java.time.Instant;
 import java.util.function.BiConsumer;
 
 /**
- * {@code /cloudsync <login|code|logout|status|sync|auto|keeplocal|usecloud>}. Only the world's owner may use it:
+ * {@code /cloudsync <login|code|logout|status|sync|auto|download|keeplocal|usecloud>}. Only the world's owner may use it:
  * in a world opened to friends, guests can't sign it in to their own Drive or switch versions.
  */
 final class CloudSyncCommand extends AbstractCommandCollection {
@@ -43,6 +43,7 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         sub("keeplocal", "Resolve a conflict by keeping this device's version", this::keepLocal);
         sub("usecloud", "Resolve a conflict by switching to the cloud version at next load", this::useCloud);
         addSubCommand(new AutoCommand());
+        addSubCommand(new DownloadCommand());
     }
 
     private void sub(String name, String description, BiConsumer<CommandContext, PlayerMessages> handler) {
@@ -168,6 +169,9 @@ final class CloudSyncCommand extends AbstractCommandCollection {
                         : "Uploads while playing are off; the world is uploaded when you leave it"
                         + " (/cloudsync auto on to turn them back on).";
             });
+            reply(ctx, plugin.settings.downloadWorlds()
+                    ? "Your other cloud worlds are added to this device's world list (/cloudsync download off to stop)."
+                    : "Cloud worlds aren't added to this device (/cloudsync download on).");
             HelperStatus.read(plugin.paths.helperStatusFile()).ifPresent(h ->
                     reply(ctx, "Last upload after leaving: " + h.phase().name().toLowerCase().replace('_', ' ')
                             + " - " + h.message() + " (" + PlayerMessages.ago(h.updatedAt(), Instant.now()) + ")."));
@@ -280,6 +284,48 @@ final class CloudSyncCommand extends AbstractCommandCollection {
                     + " device). Your world is also uploaded when you leave it."
                     : "Uploads while playing: off (all worlds on this device). Your world is still uploaded when"
                     + " you leave it.");
+        }
+    }
+
+    /** {@code /cloudsync download <on|off>}: add cloud worlds to this device's world list. */
+    private final class DownloadCommand extends CommandBase {
+        private final RequiredArg<String> value = withRequiredArg("setting",
+                "on or off: download your cloud worlds that aren't on this device", ArgTypes.STRING);
+
+        DownloadCommand() {
+            super("download", "Turn on/off adding your cloud worlds to this device's world list");
+            requireNoPermission();
+        }
+
+        @Override
+        protected void executeSync(@Nonnull CommandContext ctx) {
+            if (ctx.isPlayer() && !isOwner(ctx)) {
+                reply(ctx, "Only the world's owner can manage cloud sync.");
+                return;
+            }
+            if (plugin.mode == Mode.DISABLED) {
+                reply(ctx, "Cloud sync is off: " + plugin.disabledReason + ".");
+                return;
+            }
+            String v = ctx.get(value).trim().toLowerCase(java.util.Locale.ROOT);
+            if (!v.equals("on") && !v.equals("off")) {
+                reply(ctx, "Use /cloudsync download on or /cloudsync download off.");
+                return;
+            }
+            boolean on = v.equals("on");
+            try {
+                plugin.updateSettings(plugin.settings.withDownloadWorlds(on));
+            } catch (IOException e) {
+                reply(ctx, "Couldn't save the setting: " + e.getMessage());
+                return;
+            }
+            if (on) {
+                reply(ctx, "Your cloud worlds will be added to this device's world list. Checking now...");
+                plugin.io.execute(plugin::importCloudWorlds);
+            } else {
+                reply(ctx, "Cloud worlds won't be downloaded to this device any more. Worlds already here keep"
+                        + " syncing.");
+            }
         }
     }
 

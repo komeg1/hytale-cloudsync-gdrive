@@ -169,14 +169,14 @@ class LocalFilesTest {
         assertEquals(SyncSettings.DEFAULTS,
                 SyncSettings.load(root));
 
-        var s = SyncSettings.DEFAULTS.withMinutes(15).withAutoUpload(false);
+        var s = SyncSettings.DEFAULTS.withMinutes(15).withAutoUpload(false).withDownloadWorlds(false);
         s.save(root);
         assertEquals(s, SyncSettings.load(root));
         assertEquals(1, SyncSettings.DEFAULTS.withMinutes(0).autoUploadMinutes());
         assertEquals(240, SyncSettings.DEFAULTS.withMinutes(100000).autoUploadMinutes());
 
         Files.writeString(SyncSettings.file(root), "{\"autoUploadMinutes\": 3}");
-        assertEquals(new SyncSettings(true, 3),
+        assertEquals(new SyncSettings(true, 3, true),
                 SyncSettings.load(root));
         Files.writeString(SyncSettings.file(root), "garbage");
         assertEquals(SyncSettings.DEFAULTS,

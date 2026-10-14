@@ -10,6 +10,7 @@ import com.hypixel.hytale.server.core.universe.Universe;
 import dev.cloudsavesync.core.CloudState;
 import dev.cloudsavesync.core.StartPlan;
 import dev.cloudsavesync.core.SyncEngine;
+import dev.cloudsavesync.core.WorldImporter;
 import dev.cloudsavesync.core.local.HelperStatus;
 import dev.cloudsavesync.core.local.LocalState;
 import dev.cloudsavesync.core.local.LocalSyncLock;
@@ -29,6 +30,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -142,8 +144,8 @@ public class CloudSyncPlugin extends JavaPlugin {
             engine = services.engine(paths, log);
             settings = SyncSettings.load(paths.stateRoot());
             log.info("uploads during play: " + (settings.autoUpload()
-                    ? "every " + settings.autoUploadMinutes() + " min" : "off") + " ("
-                    + SyncSettings.file(paths.stateRoot()) + ")");
+                    ? "every " + settings.autoUploadMinutes() + " min" : "off") + ", download cloud worlds: "
+                    + (settings.downloadWorlds() ? "on" : "off") + " (" + SyncSettings.file(paths.stateRoot()) + ")");
 
             reportPreviousHelper();
             waitForHelperToFinishReading();
@@ -316,6 +318,7 @@ public class CloudSyncPlugin extends JavaPlugin {
                 warnAboutOtherDevice(cloud);
                 RemoteFile existingLock = cloud.lockFile();
                 io.execute(() -> acquireSessionLock(existingLock));
+                io.execute(this::importCloudWorlds);
             }
         }
     }
@@ -573,7 +576,54 @@ public class CloudSyncPlugin extends JavaPlugin {
             } catch (IOException e) {
                 log.warn("post sign-in check failed", e);
             }
+            importCloudWorlds();
         });
+    }
+
+    /**
+     * Downloads cloud worlds this device doesn't have into the Saves folder, so they show up in the
+     * world list next time the player is in the main menu (a server plugin can't run there). Runs on
+     * the io thread after the load-time check and after sign-in.
+     */
+    void importCloudWorlds() {
+        if (mode == Mode.DISABLED || !settings.downloadWorlds() || !services.auth().isSignedIn()) {
+            return;
+        }
+        WorldImporter importer = services.importer(paths.saveDir().getParent(), paths.stateRoot(), log);
+        List<WorldImporter.CloudWorld> missing;
+        try {
+            missing = importer.missing(importer.cloudWorlds());
+        } catch (IOException e) {
+            log.warn("could not list cloud worlds (" + e.getMessage() + ")", null);
+            return;
+        }
+        if (missing.isEmpty()) {
+            return;
+        }
+        String names = String.join(", ", missing.stream().map(w -> "'" + w.worldKey() + "'").toList());
+        messages.info("Found " + (missing.size() == 1 ? "a world" : missing.size() + " worlds")
+                + " in your Google Drive that " + (missing.size() == 1 ? "isn't" : "aren't") + " on this device: "
+                + names + ". Downloading in the background...");
+        int added = 0;
+        for (WorldImporter.CloudWorld w : missing) {
+            if (mode == Mode.DISABLED || io.isShutdown()) {
+                return;
+            }
+            try {
+                importer.importWorld(w, ProgressListener.NONE, SyncEngine.IN_SESSION_READ_BYTES_PER_SECOND);
+                added++;
+                messages.info("Added '" + w.worldKey() + "' (from " + w.head().deviceName() + ", "
+                        + PlayerMessages.ago(w.head().createdAt(), Instant.now()) + ").");
+            } catch (IOException e) {
+                log.warn("could not import cloud world '" + w.worldKey() + "'", e);
+                messages.warn("Couldn't download '" + w.worldKey() + "' (" + e.getMessage()
+                        + "). It will be tried again next time.");
+            }
+        }
+        if (added > 0) {
+            messages.info((added == 1 ? "It" : "They") + " will be in your world list when you go back to the main"
+                    + " menu.");
+        }
     }
 
     PlayerMessages messages() {
@@ -608,7 +658,8 @@ public class CloudSyncPlugin extends JavaPlugin {
         next.save(paths.stateRoot());
         settings = next;
         lastUploadAttempt = Instant.now();
-        log.info("uploads during play: " + (next.autoUpload() ? "every " + next.autoUploadMinutes() + " min" : "off"));
+        log.info("uploads during play: " + (next.autoUpload() ? "every " + next.autoUploadMinutes() + " min" : "off")
+                + ", download cloud worlds: " + (next.downloadWorlds() ? "on" : "off"));
     }
 
     /**
