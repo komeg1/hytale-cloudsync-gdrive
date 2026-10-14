@@ -52,8 +52,17 @@ public final class SnapshotArchiver {
     public record Result(Path zip, long sizeBytes, String md5Hex, String sha256Hex, int fileCount) {
     }
 
+    /**
+     * Top-level files never put in a snapshot. {@code .world.lock} is held exclusively by the
+     * running server (Windows refuses to read it mid-session) and is per-machine runtime state.
+     */
+    public static final Set<String> EXCLUDED_FILES = Set.of(".world.lock");
+
     public static boolean isExcluded(String relativePath) {
         String p = relativePath.replace('\\', '/');
+        if (EXCLUDED_FILES.contains(p)) {
+            return true;
+        }
         for (String prefix : EXCLUDED_PREFIXES) {
             if (p.startsWith(prefix)) {
                 return true;

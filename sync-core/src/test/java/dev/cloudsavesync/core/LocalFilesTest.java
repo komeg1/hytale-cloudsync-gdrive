@@ -50,6 +50,7 @@ class LocalFilesTest {
         Files.writeString(save.resolve("logs/a.log"), "log");
         Files.writeString(save.resolve("telemetry/t"), "t");
         Files.writeString(save.resolve("backup/b.zip"), "b");
+        Files.writeString(save.resolve(".world.lock"), "held by the running server");
         return save;
     }
 
