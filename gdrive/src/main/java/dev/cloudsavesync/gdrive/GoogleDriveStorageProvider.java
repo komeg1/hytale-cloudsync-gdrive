@@ -29,8 +29,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * {@link StorageProvider} on Google Drive's hidden {@code appDataFolder}. Plain REST over
+ * {@link StorageProvider} on Google Drive with the {@code drive.file} scope: the mod can only see
+ * files it created itself. They live in a visible "Hytale Cloud Saves" folder. Plain REST over
  * {@link java.net.http.HttpClient}; no Google client libraries.
+ *
+ * <p>Files are found by a tag in their appProperties, not by folder, so a second folder (two devices
+ * creating it at the same moment) or a file the user moved inside Drive is still found. Files in
+ * the trash count as deleted.
  */
 public final class GoogleDriveStorageProvider implements StorageProvider {
 
@@ -42,7 +47,15 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
     private static final int MAX_ATTEMPTS = 5;
     private static final Pattern RANGE = Pattern.compile("bytes=0-(\\d+)");
 
+    static final String FOLDER_NAME = "Hytale Cloud Saves";
+    static final String FOLDER_MIME = "application/vnd.google-apps.folder";
+    /** appProperties key on everything this mod creates. */
+    static final String TAG = "cloudsavesync";
+    static final String TAG_FILE = "1";
+    static final String TAG_FOLDER = "root";
+
     private final GoogleAuth auth;
+    private String folderId;
 
     public GoogleDriveStorageProvider(GoogleAuth auth) {
         this.auth = auth;
@@ -112,7 +125,8 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
         List<RemoteFile> out = new ArrayList<>();
         String pageToken = null;
         do {
-            String url = API + "?spaces=appDataFolder&pageSize=1000&fields="
+            String q = "appProperties has { key='" + TAG + "' and value='" + TAG_FILE + "' } and trashed=false";
+            String url = API + "?spaces=drive&pageSize=1000&q=" + Http.enc(q) + "&fields="
                     + Http.enc("nextPageToken,files(" + FIELDS + ")")
                     + (pageToken == null ? "" : "&pageToken=" + Http.enc(pageToken));
             HttpResponse<String> r = call("listing cloud saves",
@@ -263,12 +277,45 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
 
     // ------------------------------------------------------------------ mapping
 
-    private static Map<String, Object> metadata(String name, Map<String, String> properties) {
+    private Map<String, Object> metadata(String name, Map<String, String> properties) throws IOException {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("name", name);
-        m.put("parents", List.of("appDataFolder"));
-        m.put("appProperties", new LinkedHashMap<>(properties));
+        m.put("parents", List.of(folderId()));
+        Map<String, Object> props = new LinkedHashMap<>(properties);
+        props.put(TAG, TAG_FILE);
+        m.put("appProperties", props);
         return m;
+    }
+
+    /** The "Hytale Cloud Saves" folder: the oldest one this mod created, or a new one. */
+    private synchronized String folderId() throws IOException {
+        if (folderId != null) {
+            return folderId;
+        }
+        String q = "appProperties has { key='" + TAG + "' and value='" + TAG_FOLDER + "' } and mimeType='"
+                + FOLDER_MIME + "' and trashed=false";
+        String findUrl = API + "?spaces=drive&pageSize=10&orderBy=createdTime&q=" + Http.enc(q) + "&fields="
+                + Http.enc("files(id)");
+        HttpResponse<String> found = call("finding the saves folder",
+                t -> authed(findUrl, t).timeout(Http.SHORT).GET().build(), HttpResponse.BodyHandlers.ofString());
+        List<Object> folders = Json.optArray(Json.parseObject(found.body()), "files");
+        if (!folders.isEmpty()) {
+            folderId = Json.string(asMap(folders.getFirst()), "id");
+            return folderId;
+        }
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("name", FOLDER_NAME);
+        meta.put("mimeType", FOLDER_MIME);
+        meta.put("description", "Created by the Cloud Save Sync mod for Hytale. These are your synced worlds:"
+                + " deleting files here deletes their cloud copies.");
+        meta.put("appProperties", Map.of(TAG, TAG_FOLDER));
+        byte[] body = Json.write(meta).getBytes(StandardCharsets.UTF_8);
+        String createUrl = API + "?fields=id";
+        HttpResponse<String> created = call("creating the saves folder", t -> authed(createUrl, t).timeout(Http.SHORT)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(), HttpResponse.BodyHandlers.ofString());
+        folderId = Json.string(Json.parseObject(created.body()), "id");
+        return folderId;
     }
 
     @SuppressWarnings("unchecked")

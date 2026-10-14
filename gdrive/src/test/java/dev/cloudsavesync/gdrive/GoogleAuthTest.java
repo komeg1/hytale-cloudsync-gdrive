@@ -44,12 +44,12 @@ class GoogleAuthTest {
     }
 
     @Test
-    void browserSignInUrlRequestsOnlyTheAppDataScopeWithPkce() throws Exception {
+    void browserSignInUrlRequestsOnlyTheDriveFileScopeWithPkce() throws Exception {
         GoogleAuth.BrowserSignIn s = auth().startBrowserSignIn();
         try {
             Map<String, String> q = GoogleAuth.query(URI.create(s.url()));
             assertEquals(GoogleAuth.SCOPE, q.get("scope"));
-            assertEquals("https://www.googleapis.com/auth/drive.appdata", q.get("scope"));
+            assertEquals("https://www.googleapis.com/auth/drive.file", q.get("scope"));
             assertEquals("S256", q.get("code_challenge_method"));
             assertEquals("desktop-id", q.get("client_id"));
             assertEquals("offline", q.get("access_type"));
