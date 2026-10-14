@@ -2,6 +2,7 @@ package dev.cloudsavesync.plugin;
 
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
+import com.hypixel.hytale.server.core.command.system.arguments.system.OptionalArg;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractCommandCollection;
@@ -14,6 +15,7 @@ import dev.cloudsavesync.core.local.HelperStatus;
 import dev.cloudsavesync.core.local.LocalState;
 import dev.cloudsavesync.core.local.SyncSettings;
 import dev.cloudsavesync.core.model.SnapshotInfo;
+import dev.cloudsavesync.core.model.WorldManifest;
 import dev.cloudsavesync.core.storage.StorageException;
 import dev.cloudsavesync.gdrive.GoogleAuth;
 import dev.cloudsavesync.plugin.CloudSyncPlugin.Mode;
@@ -24,7 +26,7 @@ import java.time.Instant;
 import java.util.function.BiConsumer;
 
 /**
- * {@code /cloudsync <login|code|logout|status|sync|auto|download|keeplocal|usecloud>}. Only the world's owner may use it:
+ * {@code /cloudsync <login|code|logout|status|enable|disable|list|download|upload|auto|keep|keeplocal|usecloud>}. Only the world's owner may use it:
  * in a world opened to friends, guests can't sign it in to their own Drive or switch versions.
  */
 final class CloudSyncCommand extends AbstractCommandCollection {
@@ -39,11 +41,24 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         sub("login", "Sign in to Google Drive", this::login);
         sub("code", "Sign in to Google Drive with a code (for devices without a browser)", this::code);
         sub("logout", "Sign out of Google Drive on this device", this::logout);
-        sub("sync", "Back this world up to Google Drive now", this::syncNow);
+        sub("enable", "Start syncing this world with your Google Drive", (ctx, out) -> {
+            if (requireSignIn(ctx)) {
+                plugin.io.execute(plugin::enableSync);
+            }
+        });
+        sub("disable", "Stop syncing this world on this device (its cloud copy stays)", (ctx, out) ->
+                plugin.io.execute(plugin::disableSync));
+        sub("list", "List your worlds in Google Drive", (ctx, out) -> {
+            if (requireSignIn(ctx)) {
+                plugin.io.execute(plugin::listCloudWorlds);
+            }
+        });
+        sub("upload", "Back this world up to Google Drive now", this::syncNow);
         sub("keeplocal", "Resolve a conflict by keeping this device's version", this::keepLocal);
         sub("usecloud", "Resolve a conflict by switching to the cloud version at next load", this::useCloud);
         addSubCommand(new AutoCommand());
         addSubCommand(new DownloadCommand());
+        addSubCommand(new KeepCommand());
     }
 
     private void sub(String name, String description, BiConsumer<CommandContext, PlayerMessages> handler) {
@@ -71,6 +86,14 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    private boolean requireSignIn(CommandContext ctx) {
+        if (plugin.services.auth().isSignedIn()) {
+            return true;
+        }
+        reply(ctx, "Sign in first: /cloudsync login");
+        return false;
     }
 
     private static void reply(CommandContext ctx, String text) {
@@ -163,15 +186,14 @@ final class CloudSyncCommand extends AbstractCommandCollection {
                 case CONFLICT -> "Waiting for you to choose: /cloudsync usecloud or /cloudsync keeplocal.";
                 case SWITCH_PENDING -> "The cloud version will replace this world when you reopen it.";
                 case SIGNED_OUT -> "Type /cloudsync login to start syncing.";
+                case NOT_SYNCED -> "This world isn't synced on this device. Type /cloudsync enable to sync it.";
                 default -> plugin.settings.autoUpload()
                         ? "Changes are uploaded every " + plugin.settings.autoUploadMinutes()
                         + " minutes and when you leave the world (/cloudsync auto to change)."
                         : "Uploads while playing are off; the world is uploaded when you leave it"
                         + " (/cloudsync auto on to turn them back on).";
             });
-            reply(ctx, plugin.settings.downloadWorlds()
-                    ? "Your other cloud worlds are added to this device's world list (/cloudsync download off to stop)."
-                    : "Cloud worlds aren't added to this device (/cloudsync download on).");
+            reply(ctx, "Type /cloudsync list to see all your worlds in Google Drive.");
             HelperStatus.read(plugin.paths.helperStatusFile()).ifPresent(h ->
                     reply(ctx, "Last upload after leaving: " + h.phase().name().toLowerCase().replace('_', ' ')
                             + " - " + h.message() + " (" + PlayerMessages.ago(h.updatedAt(), Instant.now()) + ")."));
@@ -204,6 +226,10 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         switch (plugin.mode) {
             case SIGNED_OUT -> {
                 reply(ctx, "Sign in first: /cloudsync login");
+                return;
+            }
+            case NOT_SYNCED -> {
+                reply(ctx, "This world isn't synced. Type /cloudsync enable to start syncing it.");
                 return;
             }
             case CONFLICT -> {
@@ -287,13 +313,13 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         }
     }
 
-    /** {@code /cloudsync download <on|off>}: add cloud worlds to this device's world list. */
+    /** {@code /cloudsync download 1,3}: download worlds by their number in {@code /cloudsync list}. */
     private final class DownloadCommand extends CommandBase {
-        private final RequiredArg<String> value = withRequiredArg("setting",
-                "on or off: download your cloud worlds that aren't on this device", ArgTypes.STRING);
+        private final RequiredArg<String> numbers = withRequiredArg("numbers",
+                "the numbers from /cloudsync list, e.g. 2 or 1,3, or all", ArgTypes.GREEDY_STRING);
 
         DownloadCommand() {
-            super("download", "Turn on/off adding your cloud worlds to this device's world list");
+            super("download", "Download worlds from your Google Drive by their number in /cloudsync list");
             requireNoPermission();
         }
 
@@ -307,25 +333,44 @@ final class CloudSyncCommand extends AbstractCommandCollection {
                 reply(ctx, "Cloud sync is off: " + plugin.disabledReason + ".");
                 return;
             }
-            String v = ctx.get(value).trim().toLowerCase(java.util.Locale.ROOT);
-            if (!v.equals("on") && !v.equals("off")) {
-                reply(ctx, "Use /cloudsync download on or /cloudsync download off.");
+            if (!requireSignIn(ctx)) {
                 return;
             }
-            boolean on = v.equals("on");
-            try {
-                plugin.updateSettings(plugin.settings.withDownloadWorlds(on));
-            } catch (IOException e) {
-                reply(ctx, "Couldn't save the setting: " + e.getMessage());
+            String spec = ctx.get(numbers);
+            plugin.io.execute(() -> plugin.downloadCloudWorlds(spec));
+        }
+    }
+
+    /** {@code /cloudsync keep [copies]}: how many copies of this world Google Drive keeps. */
+    private final class KeepCommand extends CommandBase {
+        private final OptionalArg<Integer> copies = withOptionalArg("copies",
+                "how many copies of this world to keep (" + WorldManifest.MIN_KEEP + "-" + WorldManifest.MAX_KEEP + ")",
+                ArgTypes.INTEGER);
+
+        KeepCommand() {
+            super("keep", "Show or set how many copies of this world Google Drive keeps");
+            requireNoPermission();
+        }
+
+        @Override
+        protected void executeSync(@Nonnull CommandContext ctx) {
+            if (ctx.isPlayer() && !isOwner(ctx)) {
+                reply(ctx, "Only the world's owner can manage cloud sync.");
                 return;
             }
-            if (on) {
-                reply(ctx, "Your cloud worlds will be added to this device's world list. Checking now...");
-                plugin.io.execute(plugin::importCloudWorlds);
-            } else {
-                reply(ctx, "Cloud worlds won't be downloaded to this device any more. Worlds already here keep"
-                        + " syncing.");
+            if (plugin.mode == Mode.DISABLED) {
+                reply(ctx, "Cloud sync is off: " + plugin.disabledReason + ".");
+                return;
             }
+            if (!requireSignIn(ctx)) {
+                return;
+            }
+            Integer n = ctx.provided(copies) ? ctx.get(copies) : null;
+            if (n != null && (n < WorldManifest.MIN_KEEP || n > WorldManifest.MAX_KEEP)) {
+                reply(ctx, "Pick between " + WorldManifest.MIN_KEEP + " and " + WorldManifest.MAX_KEEP + " copies.");
+                return;
+            }
+            plugin.io.execute(() -> plugin.keepCopies(n));
         }
     }
 

@@ -5,6 +5,7 @@ import dev.cloudsavesync.core.archive.SnapshotArchiver;
 import dev.cloudsavesync.core.local.AtomicFiles;
 import dev.cloudsavesync.core.local.DeviceInfo;
 import dev.cloudsavesync.core.local.LocalState;
+import dev.cloudsavesync.core.local.SyncToggle;
 import dev.cloudsavesync.core.local.UnsyncedMarker;
 import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.model.CloudLayout;
@@ -43,8 +44,6 @@ import java.util.Set;
  */
 public final class SyncEngine {
 
-    /** Unpinned snapshots kept per world, including the current one. */
-    public static final int KEEP_SNAPSHOTS = 5;
     /** Conflict copies and kept-aside versions retained per world. */
     public static final int KEEP_PINNED = 5;
 
@@ -237,6 +236,16 @@ public final class SyncEngine {
     public void recordSynced(long revision, String snapshotId) throws IOException {
         saveLocal(LocalState.NEVER_SYNCED.synced(revision, snapshotId, clock.instant()));
         marker.clear();
+        SyncToggle.set(paths, true);
+    }
+
+    /** Whether this world is synced on this device (worlds are opt-in). */
+    public boolean isSyncEnabled() throws IOException {
+        return SyncToggle.isEnabled(paths);
+    }
+
+    public void setSyncEnabled(boolean enabled) throws IOException {
+        SyncToggle.set(paths, enabled);
     }
 
     // ---------------------------------------------------------------- uploading
@@ -322,7 +331,7 @@ public final class SyncEngine {
             }
             next = manifest.without(obsolete).withSnapshot(snap);
         }
-        WorldManifest.Pruned pruned = next.prune(KEEP_SNAPSHOTS, KEEP_PINNED);
+        WorldManifest.Pruned pruned = next.prune(next.keep(), KEEP_PINNED);
         writeManifest(cloud.manifestFile(), pruned.manifest());
 
         for (SnapshotInfo s : manifest.snapshots()) {
@@ -363,6 +372,34 @@ public final class SyncEngine {
             storage.create(CloudLayout.manifestName(paths.worldKey()),
                     CloudLayout.props(paths.worldKey(), CloudLayout.KIND_MANIFEST), json);
         }
+    }
+
+    // ---------------------------------------------------------------- retention
+
+    public record KeepResult(int keep, int removed, long freedBytes, int remaining, long remainingBytes) {
+    }
+
+    /**
+     * Sets how many normal copies of this world the cloud keeps (for every device) and deletes the
+     * excess now. Pinned copies keep their own limit, {@link #KEEP_PINNED}.
+     */
+    public KeepResult setKeep(int keep) throws IOException {
+        CloudState cloud = fetch();
+        if (cloud.manifest() == null || cloud.manifest().head().isEmpty()) {
+            throw new StorageException(StorageException.Kind.NOT_FOUND, "this world isn't in the cloud yet");
+        }
+        WorldManifest next = cloud.manifest().withKeep(keep);
+        WorldManifest.Pruned pruned = next.prune(next.keep(), KEEP_PINNED);
+        writeManifest(cloud.manifestFile(), pruned.manifest());
+        long freed = 0;
+        for (SnapshotInfo s : pruned.removed()) {
+            safeDelete(s.fileId());
+            freed += s.sizeBytes();
+        }
+        long remainingBytes = pruned.manifest().snapshots().stream().mapToLong(SnapshotInfo::sizeBytes).sum();
+        log.info("keep " + next.keep() + " copies: removed " + pruned.removed().size() + " (" + freed + " bytes)");
+        return new KeepResult(next.keep(), pruned.removed().size(), freed, pruned.manifest().snapshots().size(),
+                remainingBytes);
     }
 
     // ---------------------------------------------------------------- conflict resolution
