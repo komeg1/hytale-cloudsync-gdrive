@@ -60,6 +60,8 @@ public final class GoogleAuth {
     private final Executor executor;
 
     private String accessToken;
+    /** Changes whenever the signed-in account may have changed, so caches tied to an account reset. */
+    private volatile long accountGeneration;
     private Instant accessTokenExpiry = Instant.EPOCH;
 
     public GoogleAuth(GoogleClients clients, GoogleAccountStore store, Clock clock, Executor executor) {
@@ -265,6 +267,7 @@ public final class GoogleAuth {
             throw new StorageException(StorageException.Kind.OTHER, "Google didn't return a refresh token");
         }
         store.save(new GoogleAccountStore.Account(kind, refresh, clock.instant()));
+        accountGeneration++;
         cacheAccessToken(tokens);
     }
 
@@ -285,6 +288,7 @@ public final class GoogleAuth {
         if (client == null) {
             // Signed in with a client this build no longer has: sign in again.
             store.delete();
+            accountGeneration++;
             throw new StorageException(StorageException.Kind.AUTH_REQUIRED, "please sign in again");
         }
         Map<String, String> form = new HashMap<>();
@@ -298,10 +302,16 @@ public final class GoogleAuth {
             if (e.kind() == StorageException.Kind.AUTH_REQUIRED) {
                 // Revoked in the Google account settings, or expired: forget it so the player is asked again.
                 store.delete();
+                accountGeneration++;
             }
             throw e;
         }
         return accessToken;
+    }
+
+    /** Increases on every sign-in and sign-out; see {@link GoogleDriveStorageProvider}. */
+    public long accountGeneration() {
+        return accountGeneration;
     }
 
     /** Called when Drive answers 401 with a token we believed valid. */
@@ -314,6 +324,7 @@ public final class GoogleAuth {
     public synchronized void signOut() throws IOException {
         Optional<GoogleAccountStore.Account> account = store.load();
         store.delete();
+        accountGeneration++;
         invalidateAccessToken();
         if (account.isPresent()) {
             try {

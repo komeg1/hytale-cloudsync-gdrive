@@ -56,6 +56,8 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
 
     private final GoogleAuth auth;
     private String folderId;
+    /** {@link GoogleAuth#accountGeneration()} when {@link #folderId} was looked up. */
+    private long folderAccount = -1;
 
     public GoogleDriveStorageProvider(GoogleAuth auth) {
         this.auth = auth;
@@ -142,6 +144,10 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
 
     @Override
     public RemoteFile create(String name, Map<String, String> properties, byte[] content) throws IOException {
+        return inSavesFolder(() -> createSmall(name, properties, content));
+    }
+
+    private RemoteFile createSmall(String name, Map<String, String> properties, byte[] content) throws IOException {
         String boundary = "cloudsavesync-" + UUID.randomUUID();
         String metadata = Json.write(metadata(name, properties));
         byte[] head = ("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + metadata
@@ -170,6 +176,11 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
     /** Resumable upload in {@link #CHUNK}-sized pieces; a dropped connection resumes, not restarts. */
     @Override
     public RemoteFile create(String name, Map<String, String> properties, Path content, ProgressListener progress)
+            throws IOException {
+        return inSavesFolder(() -> createLarge(name, properties, content, progress));
+    }
+
+    private RemoteFile createLarge(String name, Map<String, String> properties, Path content, ProgressListener progress)
             throws IOException {
         long total = Files.size(content);
         String startUrl = UPLOAD + "?uploadType=resumable&fields=" + Http.enc(FIELDS);
@@ -326,11 +337,38 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
         return m;
     }
 
+    private synchronized void forgetFolder() {
+        folderId = null;
+    }
+
+    @FunctionalInterface
+    private interface Creation {
+        RemoteFile run() throws IOException;
+    }
+
+    /**
+     * Creating a file in a folder that's gone (deleted or trashed in Drive, or belonging to a
+     * previous account) fails with 404: look the folder up again and retry once.
+     */
+    private RemoteFile inSavesFolder(Creation create) throws IOException {
+        try {
+            return create.run();
+        } catch (StorageException e) {
+            if (e.kind() != StorageException.Kind.NOT_FOUND) {
+                throw e;
+            }
+            forgetFolder();
+            return create.run();
+        }
+    }
+
     /** The "Hytale Cloud Saves" folder: the oldest one this mod created, or a new one. */
     private synchronized String folderId() throws IOException {
-        if (folderId != null) {
+        if (folderId != null && folderAccount == auth.accountGeneration()) {
             return folderId;
         }
+        folderId = null;
+        folderAccount = auth.accountGeneration();
         String q = "appProperties has { key='" + TAG + "' and value='" + TAG_FOLDER + "' } and mimeType='"
                 + FOLDER_MIME + "' and trashed=false";
         String findUrl = API + "?spaces=drive&pageSize=10&orderBy=createdTime&q=" + Http.enc(q) + "&fields="
