@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A private, app-only file space in some cloud service (Google Drive's appDataFolder, a OneDrive
+ * An app-only file space in some cloud service (the files a Google Drive app created, a OneDrive
  * app folder, a Dropbox app folder...). Flat: files are identified by provider-assigned ids and
  * carry a name plus small string properties. Implementations must be thread-safe.
  *

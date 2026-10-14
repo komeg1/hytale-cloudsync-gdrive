@@ -27,7 +27,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Google sign-in for the drive.appdata scope (the mod can only see its own hidden app folder, never
+ * Google sign-in for the drive.file scope (the mod can only see files it created itself, never
  * the rest of the user's Drive), plus access-token refresh.
  *
  * <ul>
@@ -39,7 +39,12 @@ import java.util.concurrent.TimeUnit;
  */
 public final class GoogleAuth {
 
-    public static final String SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+    /**
+     * drive.file rather than drive.appdata: Google rejects drive.appdata in the device-code flow
+     * ("Invalid device flow scope", verified 2026-10-14) even though its docs list it, and every
+     * device must use the same scope to see the same files.
+     */
+    public static final String SCOPE = "https://www.googleapis.com/auth/drive.file";
 
     static final String AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
     static final String TOKEN_URL = "https://oauth2.googleapis.com/token";

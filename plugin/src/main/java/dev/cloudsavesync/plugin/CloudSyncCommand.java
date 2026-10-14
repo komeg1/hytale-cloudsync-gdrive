@@ -123,7 +123,8 @@ final class CloudSyncCommand extends AbstractCommandCollection {
 
     private void signInFinished(Throwable err, PlayerMessages out) {
         if (err == null) {
-            out.info("Signed in to Google Drive. Cloud Save Sync can only see its own hidden folder in your Drive.");
+            out.info("Signed in to Google Drive. Your worlds go in the \"Hytale Cloud Saves\" folder;"
+                    + " the mod can't see anything else in your Drive.");
             plugin.afterSignIn();
         } else if (!(err instanceof java.util.concurrent.CancellationException)) {
             out.error("Sign-in didn't complete: " + CloudSyncPlugin.rootMessage(err));
