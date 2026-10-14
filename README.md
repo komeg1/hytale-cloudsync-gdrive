@@ -323,6 +323,11 @@ To copy the jar into Hytale's Mods folder:
 - Pushing a `v*.*.*` tag on `master` builds the jar and publishes a GitHub release. It needs the
   `GOOGLE_TV_CLIENT_ID` and `GOOGLE_TV_CLIENT_SECRET` repository secrets.
 
+## Use of AI
+
+AI tools were used during the development of this mod, including for writing code, fixing bugs and writing
+documentation. Every change was carefully reviewed and tested by the developer before being included.
+
 ## License
 
 Cloud Save Sync is released under the [MIT License](LICENSE).
