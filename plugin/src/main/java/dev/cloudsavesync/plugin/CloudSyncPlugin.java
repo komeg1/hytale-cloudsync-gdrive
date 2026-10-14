@@ -65,6 +65,10 @@ public class CloudSyncPlugin extends JavaPlugin {
     static final Duration HEARTBEAT = Duration.ofSeconds(60);
     /** Periodic uploads wait until no chunk was saved for this long. */
     static final long QUIET_MILLIS = 2_000;
+    /** An upload that is due never waits longer than this for a quiet moment. */
+    static final Duration MAX_QUIET_WAIT = Duration.ofSeconds(90);
+    /** How often a due upload looks for a quiet moment. */
+    static final long PERIODIC_TICK_SECONDS = 5;
 
     enum Mode {
         /** Not a singleplayer save, or a build without Google credentials. */
@@ -164,7 +168,8 @@ public class CloudSyncPlugin extends JavaPlugin {
             return;
         }
         lastUploadAttempt = Instant.now().minus(PERIODIC_INTERVAL).plus(FIRST_PERIODIC);
-        timer.scheduleWithFixedDelay(() -> io.execute(this::periodicUpload), 30, 30, TimeUnit.SECONDS);
+        timer.scheduleWithFixedDelay(() -> io.execute(this::periodicUpload), PERIODIC_TICK_SECONDS,
+                PERIODIC_TICK_SECONDS, TimeUnit.SECONDS);
         timer.scheduleWithFixedDelay(() -> io.execute(this::heartbeat), HEARTBEAT.toSeconds(), HEARTBEAT.toSeconds(),
                 TimeUnit.SECONDS);
     }
@@ -457,12 +462,19 @@ public class CloudSyncPlugin extends JavaPlugin {
         if (mode != Mode.NORMAL || !services.auth().isSignedIn()) {
             return;
         }
-        if (Duration.between(lastUploadAttempt, Instant.now()).compareTo(PERIODIC_INTERVAL) < 0) {
+        Duration sinceLast = Duration.between(lastUploadAttempt, Instant.now());
+        if (sinceLast.compareTo(PERIODIC_INTERVAL) < 0) {
             return;
         }
-        if (saveActivity.millisSinceLastSave() < QUIET_MILLIS) {
-            return; // try again at the next tick, between autosaves
+        long quietFor = saveActivity.millisSinceLastSave();
+        boolean overdue = sinceLast.compareTo(PERIODIC_INTERVAL.plus(MAX_QUIET_WAIT)) >= 0;
+        if (quietFor < QUIET_MILLIS && !overdue) {
+            // While exploring, new chunks are saved almost constantly: retry at the next tick.
+            return;
         }
+        log.info("periodic upload starting (" + (quietFor >= QUIET_MILLIS
+                ? "no chunk saved for " + quietFor + " ms"
+                : "no quiet moment for " + MAX_QUIET_WAIT.toSeconds() + " s, uploading anyway") + ")");
         upload(SyncEngine.REASON_PERIODIC, ProgressListener.NONE, false);
     }
 
