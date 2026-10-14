@@ -1,10 +1,17 @@
 name: Tests
 
+# Pull requests are tested as merged into master; master is tested again after each merge.
+# Pushes to dev are covered by the pull request run, so they don't trigger a second one.
 on:
   pull_request:
     branches: [ "master" ]
   push:
-    branches: [ "master", "dev" ]
+    branches: [ "master" ]
+
+# A newer commit on the same branch or pull request cancels the older, still-running tests.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
