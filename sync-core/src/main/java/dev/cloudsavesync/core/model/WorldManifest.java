@@ -19,16 +19,33 @@ import java.util.Set;
  * copy doesn't change the head, so it doesn't make other devices think there's a newer save.
  */
 public record WorldManifest(int formatVersion, String worldKey, long revision, String headSnapshotId,
-                            List<SnapshotInfo> snapshots) {
+                            List<SnapshotInfo> snapshots, int keepSnapshots) {
 
     public static final int FORMAT_VERSION = 1;
+    /** Normal (unpinned) copies kept when the world doesn't say otherwise. */
+    public static final int DEFAULT_KEEP = 5;
+    public static final int MIN_KEEP = 1;
+    public static final int MAX_KEEP = 20;
 
     public WorldManifest {
         snapshots = List.copyOf(snapshots);
     }
 
     public static WorldManifest empty(String worldKey) {
-        return new WorldManifest(FORMAT_VERSION, worldKey, 0, null, List.of());
+        return new WorldManifest(FORMAT_VERSION, worldKey, 0, null, List.of(), 0);
+    }
+
+    /**
+     * How many normal copies this world keeps. Stored in the manifest so every device prunes with the
+     * same number; 0 (older manifests) means {@link #DEFAULT_KEEP}.
+     */
+    public int keep() {
+        return keepSnapshots <= 0 ? DEFAULT_KEEP : Math.max(MIN_KEEP, Math.min(MAX_KEEP, keepSnapshots));
+    }
+
+    public WorldManifest withKeep(int keep) {
+        return new WorldManifest(formatVersion, worldKey, revision, headSnapshotId, snapshots,
+                Math.max(MIN_KEEP, Math.min(MAX_KEEP, keep)));
     }
 
     public Optional<SnapshotInfo> head() {
@@ -46,28 +63,28 @@ public record WorldManifest(int formatVersion, String worldKey, long revision, S
     public WorldManifest withHead(SnapshotInfo s) {
         List<SnapshotInfo> list = new ArrayList<>(snapshots);
         list.add(s);
-        return new WorldManifest(formatVersion, worldKey, revision + 1, s.id(), list);
+        return new WorldManifest(formatVersion, worldKey, revision + 1, s.id(), list, keepSnapshots);
     }
 
     /** Adds {@code s} without changing which version is current (conflict copies). */
     public WorldManifest withSnapshot(SnapshotInfo s) {
         List<SnapshotInfo> list = new ArrayList<>(snapshots);
         list.add(s);
-        return new WorldManifest(formatVersion, worldKey, revision, headSnapshotId, list);
+        return new WorldManifest(formatVersion, worldKey, revision, headSnapshotId, list, keepSnapshots);
     }
 
     public WorldManifest withPinned(String snapshotId, boolean pinned) {
         List<SnapshotInfo> list = snapshots.stream()
                 .map(s -> s.id().equals(snapshotId) ? s.withPinned(pinned) : s)
                 .toList();
-        return new WorldManifest(formatVersion, worldKey, revision, headSnapshotId, list);
+        return new WorldManifest(formatVersion, worldKey, revision, headSnapshotId, list, keepSnapshots);
     }
 
     public WorldManifest without(Set<String> snapshotIds) {
         List<SnapshotInfo> list = snapshots.stream()
                 .filter(s -> !snapshotIds.contains(s.id()) || s.id().equals(headSnapshotId))
                 .toList();
-        return new WorldManifest(formatVersion, worldKey, revision, headSnapshotId, list);
+        return new WorldManifest(formatVersion, worldKey, revision, headSnapshotId, list, keepSnapshots);
     }
 
     public record Pruned(WorldManifest manifest, List<SnapshotInfo> removed) {
@@ -109,6 +126,9 @@ public record WorldManifest(int formatVersion, String worldKey, long revision, S
         m.put("worldKey", worldKey);
         m.put("revision", revision);
         m.put("headSnapshotId", headSnapshotId);
+        if (keepSnapshots > 0) {
+            m.put("keepSnapshots", keepSnapshots);
+        }
         m.put("snapshots", snapshots.stream().map(SnapshotInfo::toJson).toList());
         return Json.write(m);
     }
@@ -126,6 +146,7 @@ public record WorldManifest(int formatVersion, String worldKey, long revision, S
             snaps.add(SnapshotInfo.fromJson((Map<String, Object>) o));
         }
         return new WorldManifest((int) format, Json.string(m, "worldKey"), Json.number(m, "revision"),
-                Json.optString(m, "headSnapshotId"), snaps);
+                Json.optString(m, "headSnapshotId"), snaps,
+                (int) Math.min(Integer.MAX_VALUE, Optional.ofNullable(Json.optNumber(m, "keepSnapshots")).orElse(0L)));
     }
 }

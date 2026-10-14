@@ -240,6 +240,36 @@ class SyncEngineTest {
     }
 
     @Test
+    void keepSettingPrunesNowAndAppliesToEveryDevice() throws IOException {
+        for (int i = 0; i < 5; i++) {
+            writeWorld(pc.paths().saveDir(), "v" + i);
+            exitUpload(pc);
+        }
+        SyncEngine.KeepResult r = pc.setKeep(2);
+        assertEquals(3, r.removed());
+        assertEquals(2, r.remaining());
+        assertEquals(2, cloud.names().stream().filter(n -> n.endsWith(".zip")).count());
+
+        // Another device follows the same number: it lives in the world's manifest.
+        deck.chooseCloud(deck.fetch());
+        restoreHead(deck);
+        writeWorld(deck.paths().saveDir(), "deck edit");
+        exitUpload(deck);
+        var manifest = deck.fetch().manifest();
+        assertEquals(2, manifest.keep());
+        assertEquals(2, manifest.snapshots().size());
+        assertEquals(2, cloud.names().stream().filter(n -> n.endsWith(".zip")).count());
+
+        assertEquals(20, pc.setKeep(500).keep(), "clamped to the maximum");
+    }
+
+    @Test
+    void keepNeedsTheWorldInTheCloud() {
+        StorageException e = assertThrows(StorageException.class, () -> pc.setKeep(3));
+        assertEquals(StorageException.Kind.NOT_FOUND, e.kind());
+    }
+
+    @Test
     void corruptedUploadIsRejectedAndNothingCommitted() throws IOException {
         exitUpload(pc);
         pc.marker().mark("session");

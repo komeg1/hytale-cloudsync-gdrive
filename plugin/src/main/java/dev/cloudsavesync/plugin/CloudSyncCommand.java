@@ -2,6 +2,7 @@ package dev.cloudsavesync.plugin;
 
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
+import com.hypixel.hytale.server.core.command.system.arguments.system.OptionalArg;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractCommandCollection;
@@ -14,6 +15,7 @@ import dev.cloudsavesync.core.local.HelperStatus;
 import dev.cloudsavesync.core.local.LocalState;
 import dev.cloudsavesync.core.local.SyncSettings;
 import dev.cloudsavesync.core.model.SnapshotInfo;
+import dev.cloudsavesync.core.model.WorldManifest;
 import dev.cloudsavesync.core.storage.StorageException;
 import dev.cloudsavesync.gdrive.GoogleAuth;
 import dev.cloudsavesync.plugin.CloudSyncPlugin.Mode;
@@ -24,7 +26,7 @@ import java.time.Instant;
 import java.util.function.BiConsumer;
 
 /**
- * {@code /cloudsync <login|code|logout|status|enable|disable|list|download|upload|auto|keeplocal|usecloud>}. Only the world's owner may use it:
+ * {@code /cloudsync <login|code|logout|status|enable|disable|list|download|upload|auto|keep|keeplocal|usecloud>}. Only the world's owner may use it:
  * in a world opened to friends, guests can't sign it in to their own Drive or switch versions.
  */
 final class CloudSyncCommand extends AbstractCommandCollection {
@@ -56,6 +58,7 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         sub("usecloud", "Resolve a conflict by switching to the cloud version at next load", this::useCloud);
         addSubCommand(new AutoCommand());
         addSubCommand(new DownloadCommand());
+        addSubCommand(new KeepCommand());
     }
 
     private void sub(String name, String description, BiConsumer<CommandContext, PlayerMessages> handler) {
@@ -335,6 +338,39 @@ final class CloudSyncCommand extends AbstractCommandCollection {
             }
             String spec = ctx.get(numbers);
             plugin.io.execute(() -> plugin.downloadCloudWorlds(spec));
+        }
+    }
+
+    /** {@code /cloudsync keep [copies]}: how many copies of this world Google Drive keeps. */
+    private final class KeepCommand extends CommandBase {
+        private final OptionalArg<Integer> copies = withOptionalArg("copies",
+                "how many copies of this world to keep (" + WorldManifest.MIN_KEEP + "-" + WorldManifest.MAX_KEEP + ")",
+                ArgTypes.INTEGER);
+
+        KeepCommand() {
+            super("keep", "Show or set how many copies of this world Google Drive keeps");
+            requireNoPermission();
+        }
+
+        @Override
+        protected void executeSync(@Nonnull CommandContext ctx) {
+            if (ctx.isPlayer() && !isOwner(ctx)) {
+                reply(ctx, "Only the world's owner can manage cloud sync.");
+                return;
+            }
+            if (plugin.mode == Mode.DISABLED) {
+                reply(ctx, "Cloud sync is off: " + plugin.disabledReason + ".");
+                return;
+            }
+            if (!requireSignIn(ctx)) {
+                return;
+            }
+            Integer n = ctx.provided(copies) ? ctx.get(copies) : null;
+            if (n != null && (n < WorldManifest.MIN_KEEP || n > WorldManifest.MAX_KEEP)) {
+                reply(ctx, "Pick between " + WorldManifest.MIN_KEEP + " and " + WorldManifest.MAX_KEEP + " copies.");
+                return;
+            }
+            plugin.io.execute(() -> plugin.keepCopies(n));
         }
     }
 

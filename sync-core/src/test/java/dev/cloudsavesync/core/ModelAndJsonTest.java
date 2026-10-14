@@ -107,6 +107,11 @@ class ModelAndJsonTest {
 
         String future = m.toJson().replace("\"formatVersion\": 1", "\"formatVersion\": 99");
         assertThrows(IllegalStateException.class, () -> WorldManifest.fromJson(future));
+
+        assertEquals(WorldManifest.DEFAULT_KEEP, m.keep(), "manifests without the field keep the default");
+        WorldManifest kept = m.withKeep(3);
+        assertEquals(3, WorldManifest.fromJson(kept.toJson()).keep());
+        assertEquals(WorldManifest.MIN_KEEP, m.withKeep(0).keep());
     }
 
     @Test
