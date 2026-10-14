@@ -53,8 +53,42 @@ public class SpikePlugin extends JavaPlugin {
                 + " java=" + System.getProperty("java.version")
                 + " os=" + System.getProperty("os.name") + " " + System.getProperty("os.version"));
         log.log("constructor", "spikeLog=" + log.file());
-        Runtime.getRuntime().addShutdownHook(new Thread(
-                () -> log.log("jvm-shutdown-hook", "(absent after a hard kill)"), "spike-shutdown-hook"));
+        Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownHookSurvivalTest, "spike-shutdown-hook"));
+    }
+
+    /**
+     * Measures how long the client lets the server process live after shutdown starts. Ticks once a
+     * second for {@link #HOOK_TEST_SECONDS}s: the last tick in the log is how long we survived. No
+     * "jvm-shutdown-hook:begin" line at all means the hook never ran (hard kill).
+     */
+    private void shutdownHookSurvivalTest() {
+        long begin = System.nanoTime();
+        log.log("jvm-shutdown-hook:begin", "testing survival for " + HOOK_TEST_SECONDS + "s"
+                + " parentAlive=" + parentAlive());
+        for (int s = 1; s <= HOOK_TEST_SECONDS; s++) {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                log.log("jvm-shutdown-hook:interrupted", "after " + elapsedMs(begin) + "ms");
+                return;
+            }
+            log.log("jvm-shutdown-hook:tick", s + "/" + HOOK_TEST_SECONDS + " elapsed=" + elapsedMs(begin)
+                    + "ms parentAlive=" + parentAlive());
+        }
+        log.log("jvm-shutdown-hook:end", "survived full " + HOOK_TEST_SECONDS + "s");
+    }
+
+    private static final int HOOK_TEST_SECONDS = 30;
+
+    private static long elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000;
+    }
+
+    /** Whether the launching process (the game client) is still running. */
+    private static String parentAlive() {
+        return ProcessHandle.current().parent()
+                .map(p -> p.pid() + ":" + p.isAlive())
+                .orElse("none");
     }
 
     @Override

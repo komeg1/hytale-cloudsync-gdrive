@@ -44,7 +44,8 @@ tasks.register<Copy>("deployPlugin") {
     description = "Copies the built plugin jar into the directory given by the hytaleModsDir property."
     dependsOn(tasks.named("jar"))
     from(tasks.named<Jar>("jar").flatMap { it.archiveFile })
-    into(hytaleModsDir.orElse("__hytaleModsDir_not_set__"))
+    // Placeholder only so configuration succeeds; doFirst fails the task before anything is copied.
+    into(hytaleModsDir.orElse(layout.buildDirectory.dir("hytaleModsDir-not-set").map { it.asFile.path }))
 
     val modsDir = hytaleModsDir
     val jarName = tasks.named<Jar>("jar").flatMap { it.archiveFileName }
