@@ -232,20 +232,31 @@ public final class SyncEngine {
         return backup;
     }
 
-    /** Records that the local world now matches cloud {@code revision} (after an import). */
-    public void recordSynced(long revision, String snapshotId) throws IOException {
+    /** Records that the local world now matches cloud {@code revision} of {@code accountId} (after an import). */
+    public void recordSynced(long revision, String snapshotId, String accountId) throws IOException {
         saveLocal(LocalState.NEVER_SYNCED.synced(revision, snapshotId, clock.instant()));
         marker.clear();
-        SyncToggle.set(paths, true);
+        SyncToggle.set(paths, true, accountId);
     }
 
-    /** Whether this world is synced on this device (worlds are opt-in). */
-    public boolean isSyncEnabled() throws IOException {
-        return SyncToggle.isEnabled(paths);
+    /** Whether this world syncs with {@code accountId} on this device (worlds are opt-in, per account). */
+    public boolean isSyncEnabled(String accountId) throws IOException {
+        return SyncToggle.isEnabled(paths, accountId);
     }
 
-    public void setSyncEnabled(boolean enabled) throws IOException {
-        SyncToggle.set(paths, enabled);
+    /**
+     * Turns sync on or off for this world and account. Turning it on for a different account than
+     * before forgets which cloud revision this world matched: that number belonged to the other
+     * account's Drive, so the world is compared with the new account's cloud as never synced.
+     */
+    public void setSyncEnabled(boolean enabled, String accountId) throws IOException {
+        SyncToggle.State before = SyncToggle.read(paths);
+        if (enabled && before != null && before.accountId() != null && !before.accountId().equals(accountId)) {
+            discardPending();
+            saveLocal(LocalState.NEVER_SYNCED);
+            log.info("sync for '" + paths.worldKey() + "' moves to another account; previous sync state forgotten");
+        }
+        SyncToggle.set(paths, enabled, accountId);
     }
 
     // ---------------------------------------------------------------- uploading

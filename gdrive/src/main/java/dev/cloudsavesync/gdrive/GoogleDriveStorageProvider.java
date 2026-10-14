@@ -1,6 +1,7 @@
 package dev.cloudsavesync.gdrive;
 
 import dev.cloudsavesync.core.json.Json;
+import dev.cloudsavesync.core.storage.AccountInfo;
 import dev.cloudsavesync.core.storage.ProgressListener;
 import dev.cloudsavesync.core.storage.RemoteFile;
 import dev.cloudsavesync.core.storage.StorageException;
@@ -56,6 +57,8 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
 
     private final GoogleAuth auth;
     private String folderId;
+    /** {@link GoogleAuth#accountGeneration()} when {@link #folderId} was looked up. */
+    private long folderAccount = -1;
 
     public GoogleDriveStorageProvider(GoogleAuth auth) {
         this.auth = auth;
@@ -120,6 +123,32 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
 
     // ------------------------------------------------------------------ StorageProvider
 
+    /**
+     * The signed-in account, from Drive's about endpoint (allowed with drive.file), remembered next to
+     * the sign-in token. {@code permissionId} is Google's stable id for the account.
+     */
+    @Override
+    public AccountInfo account() throws IOException {
+        long generation = auth.accountGeneration();
+        java.util.Optional<AccountInfo> known = auth.knownAccount();
+        if (known.isPresent()) {
+            return known.get();
+        }
+        String url = API.replace("/files", "/about") + "?fields=" + Http.enc("user(permissionId,emailAddress)");
+        HttpResponse<String> r = call("reading your Google account",
+                t -> authed(url, t).timeout(Http.SHORT).GET().build(), HttpResponse.BodyHandlers.ofString());
+        Map<String, Object> user = Json.optObject(Json.parseObject(r.body()), "user");
+        String id = user == null ? null : Json.optString(user, "permissionId");
+        if (id == null) {
+            throw new StorageException(StorageException.Kind.OTHER, "Google didn't say which account is signed in");
+        }
+        AccountInfo info = new AccountInfo(id, Json.optString(user, "emailAddress"));
+        if (generation == auth.accountGeneration()) {
+            auth.rememberAccount(info);
+        }
+        return info;
+    }
+
     @Override
     public List<RemoteFile> list() throws IOException {
         List<RemoteFile> out = new ArrayList<>();
@@ -142,6 +171,10 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
 
     @Override
     public RemoteFile create(String name, Map<String, String> properties, byte[] content) throws IOException {
+        return inSavesFolder(() -> createSmall(name, properties, content));
+    }
+
+    private RemoteFile createSmall(String name, Map<String, String> properties, byte[] content) throws IOException {
         String boundary = "cloudsavesync-" + UUID.randomUUID();
         String metadata = Json.write(metadata(name, properties));
         byte[] head = ("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + metadata
@@ -170,6 +203,11 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
     /** Resumable upload in {@link #CHUNK}-sized pieces; a dropped connection resumes, not restarts. */
     @Override
     public RemoteFile create(String name, Map<String, String> properties, Path content, ProgressListener progress)
+            throws IOException {
+        return inSavesFolder(() -> createLarge(name, properties, content, progress));
+    }
+
+    private RemoteFile createLarge(String name, Map<String, String> properties, Path content, ProgressListener progress)
             throws IOException {
         long total = Files.size(content);
         String startUrl = UPLOAD + "?uploadType=resumable&fields=" + Http.enc(FIELDS);
@@ -326,11 +364,38 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
         return m;
     }
 
+    private synchronized void forgetFolder() {
+        folderId = null;
+    }
+
+    @FunctionalInterface
+    private interface Creation {
+        RemoteFile run() throws IOException;
+    }
+
+    /**
+     * Creating a file in a folder that's gone (deleted or trashed in Drive, or belonging to a
+     * previous account) fails with 404: look the folder up again and retry once.
+     */
+    private RemoteFile inSavesFolder(Creation create) throws IOException {
+        try {
+            return create.run();
+        } catch (StorageException e) {
+            if (e.kind() != StorageException.Kind.NOT_FOUND) {
+                throw e;
+            }
+            forgetFolder();
+            return create.run();
+        }
+    }
+
     /** The "Hytale Cloud Saves" folder: the oldest one this mod created, or a new one. */
     private synchronized String folderId() throws IOException {
-        if (folderId != null) {
+        if (folderId != null && folderAccount == auth.accountGeneration()) {
             return folderId;
         }
+        folderId = null;
+        folderAccount = auth.accountGeneration();
         String q = "appProperties has { key='" + TAG + "' and value='" + TAG_FOLDER + "' } and mimeType='"
                 + FOLDER_MIME + "' and trashed=false";
         String findUrl = API + "?spaces=drive&pageSize=10&orderBy=createdTime&q=" + Http.enc(q) + "&fields="

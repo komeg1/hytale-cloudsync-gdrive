@@ -52,6 +52,10 @@ public final class SyncServices {
         return auth;
     }
 
+    public StorageProvider storage() {
+        return storage;
+    }
+
     public DeviceInfo device() {
         return device;
     }

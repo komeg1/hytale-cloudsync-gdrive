@@ -115,25 +115,44 @@ class WorldImporterTest {
     }
 
     @Test
-    void worldsAreOptInButSyncedAndDownloadedWorldsCountAsEnabled() throws IOException {
+    void worldsAreOptInPerAccount() throws IOException {
         Path userData = tmp.resolve("pc/UserData");
         WorldPaths fresh = WorldPaths.of(Files.createDirectories(userData.resolve("Saves/Brand New/universe")).getParent(),
                 userData.resolve("CloudSaveSync"));
         SyncEngine newWorld = new SyncEngine(cloud, fresh, new DeviceInfo("pc-id", "Gaming PC"), clock, QUIET);
-        assertFalse(newWorld.isSyncEnabled(), "a new world is not synced until the player enables it");
-        newWorld.setSyncEnabled(true);
-        assertTrue(newWorld.isSyncEnabled());
-        newWorld.setSyncEnabled(false);
-        assertFalse(newWorld.isSyncEnabled());
+        assertFalse(newWorld.isSyncEnabled("alice"), "a new world is not synced until the player enables it");
+        newWorld.setSyncEnabled(true, "alice");
+        assertTrue(newWorld.isSyncEnabled("alice"));
+        assertFalse(newWorld.isSyncEnabled("bob"), "signing in with another account doesn't start syncing it");
+        assertFalse(newWorld.isSyncEnabled(null), "unknown account: not synced");
+        newWorld.setSyncEnabled(false, "alice");
+        assertFalse(newWorld.isSyncEnabled("alice"));
 
-        SyncEngine alreadySynced = new SyncEngine(cloud, WorldPaths.of(userData.resolve("Saves/Alpha"),
+        SyncEngine syncedBeforeAccounts = new SyncEngine(cloud, WorldPaths.of(userData.resolve("Saves/Alpha"),
                 userData.resolve("CloudSaveSync")), new DeviceInfo("pc-id", "Gaming PC"), clock, QUIET);
-        assertTrue(alreadySynced.isSyncEnabled(), "worlds synced before opt-in existed stay on");
+        assertFalse(syncedBeforeAccounts.isSyncEnabled(InMemoryStorageProvider.ACCOUNT.id()),
+                "a world synced before worlds were tied to accounts needs /cloudsync enable once");
 
         Path imported = deck.importWorld(deck.cloudWorlds().getFirst(), ProgressListener.NONE, 0);
         SyncEngine onDeck = new SyncEngine(cloud, WorldPaths.of(imported, deckSaves.getParent().resolve("CloudSaveSync")),
                 new DeviceInfo("deck-id", "Steam Deck"), clock, QUIET);
-        assertTrue(onDeck.isSyncEnabled(), "a downloaded world keeps syncing");
+        assertTrue(onDeck.isSyncEnabled(InMemoryStorageProvider.ACCOUNT.id()),
+                "a downloaded world syncs with the account it came from");
+    }
+
+    @Test
+    void enablingForAnotherAccountTreatsTheWorldAsNeverSynced() throws IOException {
+        Path imported = deck.importWorld(deck.cloudWorlds().getFirst(), ProgressListener.NONE, 0);
+        SyncEngine onDeck = new SyncEngine(cloud, WorldPaths.of(imported, deckSaves.getParent().resolve("CloudSaveSync")),
+                new DeviceInfo("deck-id", "Steam Deck"), clock, QUIET);
+        assertTrue(onDeck.localState().lastSyncedRevision() != null);
+
+        onDeck.setSyncEnabled(true, "someone-else");
+
+        assertTrue(onDeck.localState().lastSyncedRevision() == null,
+                "revisions from the previous account's Drive must not be compared with the new account's");
+        onDeck.setSyncEnabled(true, "someone-else");
+        assertTrue(onDeck.isSyncEnabled("someone-else"));
     }
 
     @Test
