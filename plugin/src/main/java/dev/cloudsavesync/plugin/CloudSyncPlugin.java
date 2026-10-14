@@ -46,7 +46,7 @@ import java.util.concurrent.TimeoutException;
  * maps server lifecycle to them.
  *
  * <ul>
- *   <li>{@link #setup()}: runs before the world loads (measured in the Phase 0 spike), so a newer
+ *   <li>{@link #setup()}: runs before the world loads and before any save file is open, so a newer
  *       cloud version can replace the local world here, within a time budget, with progress on the
  *       loading screen. Then the session is marked as having unsynced changes.</li>
  *   <li>While playing: a periodic upload every few minutes and a session-lock heartbeat, all on
