@@ -2,7 +2,7 @@
     "Group": "CloudSaveSync",
     "Name": "CloudSaveSync",
     "Version": "${version}",
-    "Description": "Phase 0 spike: logs lifecycle, world and save timing plus save-file lock state.",
+    "Description": "Syncs singleplayer worlds between your devices through your Google Drive.",
     "Authors": [
         {
             "Name": "komeg1"
@@ -14,5 +14,5 @@
     "Dependencies": {},
     "OptionalDependencies": {},
     "ServerVersion": ">=0.7.0 <0.8.0",
-    "Main": "dev.cloudsavesync.spike.SpikePlugin"
+    "Main": "dev.cloudsavesync.plugin.CloudSyncPlugin"
 }
