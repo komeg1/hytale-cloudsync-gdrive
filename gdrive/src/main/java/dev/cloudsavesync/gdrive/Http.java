@@ -17,9 +17,15 @@ import java.util.stream.Collectors;
 /** Shared HTTP plumbing and Google error classification. */
 final class Http {
 
+    /**
+     * Never follows redirects: resumable uploads answer each chunk with "308 Resume Incomplete",
+     * which isn't a redirect (no Location header) and must reach our code. Following redirects made
+     * the client fail every multi-chunk upload with "Invalid redirection". No Google endpoint we use
+     * redirects.
+     */
     static final HttpClient CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build();
 
     static final Duration SHORT = Duration.ofSeconds(30);
