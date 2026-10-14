@@ -1,0 +1,18 @@
+{
+    "Group": "CloudSaveSync",
+    "Name": "CloudSaveSync",
+    "Version": "${version}",
+    "Description": "Phase 0 spike: logs lifecycle, world and save timing plus save-file lock state.",
+    "Authors": [
+        {
+            "Name": "komeg1"
+        }
+    ],
+    "Website": "",
+    "DisabledByDefault": false,
+    "IncludesAssetPack": false,
+    "Dependencies": {},
+    "OptionalDependencies": {},
+    "ServerVersion": ">=0.7.0 <0.8.0",
+    "Main": "dev.cloudsavesync.spike.SpikePlugin"
+}

@@ -1,0 +1,7 @@
+libs/
+secrets.properties
+build/
+.gradle/
+.idea/
+*.iml
+.vscode/
