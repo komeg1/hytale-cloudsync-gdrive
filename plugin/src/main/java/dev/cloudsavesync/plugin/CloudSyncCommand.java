@@ -2,6 +2,8 @@ package dev.cloudsavesync.plugin;
 
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
+import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
+import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractCommandCollection;
 import com.hypixel.hytale.server.core.command.system.basecommands.CommandBase;
 import com.hypixel.hytale.server.core.modules.singleplayer.SingleplayerModule;
@@ -10,6 +12,7 @@ import dev.cloudsavesync.core.SyncEngine;
 import dev.cloudsavesync.core.local.DeviceInfo;
 import dev.cloudsavesync.core.local.HelperStatus;
 import dev.cloudsavesync.core.local.LocalState;
+import dev.cloudsavesync.core.local.SyncSettings;
 import dev.cloudsavesync.core.model.SnapshotInfo;
 import dev.cloudsavesync.core.storage.StorageException;
 import dev.cloudsavesync.gdrive.GoogleAuth;
@@ -21,7 +24,7 @@ import java.time.Instant;
 import java.util.function.BiConsumer;
 
 /**
- * {@code /cloudsync <login|code|logout|status|sync|keeplocal|usecloud>}. Only the world's owner may use it:
+ * {@code /cloudsync <login|code|logout|status|sync|auto|keeplocal|usecloud>}. Only the world's owner may use it:
  * in a world opened to friends, guests can't sign it in to their own Drive or switch versions.
  */
 final class CloudSyncCommand extends AbstractCommandCollection {
@@ -39,23 +42,16 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         sub("sync", "Back this world up to Google Drive now", this::syncNow);
         sub("keeplocal", "Resolve a conflict by keeping this device's version", this::keepLocal);
         sub("usecloud", "Resolve a conflict by switching to the cloud version at next load", this::useCloud);
+        addSubCommand(new AutoCommand());
     }
 
     private void sub(String name, String description, BiConsumer<CommandContext, PlayerMessages> handler) {
         CommandBase c = new CommandBase(name, description) {
             @Override
             protected void executeSync(@Nonnull CommandContext ctx) {
-                if (ctx.isPlayer()) {
-                    boolean owner;
-                    try {
-                        owner = SingleplayerModule.isOwner(ctx.sender().getUuid());
-                    } catch (RuntimeException e) {
-                        owner = false;
-                    }
-                    if (!owner) {
-                        reply(ctx, "Only the world's owner can manage cloud sync.");
-                        return;
-                    }
+                if (ctx.isPlayer() && !isOwner(ctx)) {
+                    reply(ctx, "Only the world's owner can manage cloud sync.");
+                    return;
                 }
                 if (plugin.mode == Mode.DISABLED) {
                     reply(ctx, "Cloud sync is off: " + plugin.disabledReason + ".");
@@ -66,6 +62,14 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         };
         c.requireNoPermission();
         addSubCommand(c);
+    }
+
+    private static boolean isOwner(CommandContext ctx) {
+        try {
+            return SingleplayerModule.isOwner(ctx.sender().getUuid());
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     private static void reply(CommandContext ctx, String text) {
@@ -158,8 +162,11 @@ final class CloudSyncCommand extends AbstractCommandCollection {
                 case CONFLICT -> "Waiting for you to choose: /cloudsync usecloud or /cloudsync keeplocal.";
                 case SWITCH_PENDING -> "The cloud version will replace this world when you reopen it.";
                 case SIGNED_OUT -> "Type /cloudsync login to start syncing.";
-                default -> "Changes are uploaded every " + CloudSyncPlugin.PERIODIC_INTERVAL.toMinutes()
-                        + " minutes and when you leave the world.";
+                default -> plugin.settings.autoUpload()
+                        ? "Changes are uploaded every " + plugin.settings.autoUploadMinutes()
+                        + " minutes and when you leave the world (/cloudsync auto to change)."
+                        : "Uploads while playing are off; the world is uploaded when you leave it"
+                        + " (/cloudsync auto on to turn them back on).";
             });
             HelperStatus.read(plugin.paths.helperStatusFile()).ifPresent(h ->
                     reply(ctx, "Last upload after leaving: " + h.phase().name().toLowerCase().replace('_', ' ')
@@ -215,6 +222,65 @@ final class CloudSyncCommand extends AbstractCommandCollection {
                 out.info("Uploading... " + quarter * 25 + "%");
             }
         }, true));
+    }
+
+    // ------------------------------------------------------------------ settings
+
+    /** {@code /cloudsync auto <on|off|minutes>}: uploads while playing. */
+    private final class AutoCommand extends CommandBase {
+        private final RequiredArg<String> value = withRequiredArg("setting",
+                "on, off, or how many minutes between uploads while playing (e.g. 10)", ArgTypes.STRING);
+
+        AutoCommand() {
+            super("auto", "Turn uploads while playing on/off or set how often they happen");
+            requireNoPermission();
+        }
+
+        @Override
+        protected void executeSync(@Nonnull CommandContext ctx) {
+            if (ctx.isPlayer() && !isOwner(ctx)) {
+                reply(ctx, "Only the world's owner can manage cloud sync.");
+                return;
+            }
+            if (plugin.mode == Mode.DISABLED) {
+                reply(ctx, "Cloud sync is off: " + plugin.disabledReason + ".");
+                return;
+            }
+            String v = ctx.get(value).trim().toLowerCase(java.util.Locale.ROOT);
+            SyncSettings current = plugin.settings;
+            SyncSettings next;
+            if (v.equals("off") || v.equals("0")) {
+                next = current.withAutoUpload(false);
+            } else if (v.equals("on")) {
+                next = current.withAutoUpload(true);
+            } else {
+                int minutes;
+                try {
+                    minutes = Integer.parseInt(v);
+                } catch (NumberFormatException e) {
+                    reply(ctx, "Use /cloudsync auto on, /cloudsync auto off, or a number of minutes like"
+                            + " /cloudsync auto 10.");
+                    return;
+                }
+                if (minutes < SyncSettings.MIN_MINUTES || minutes > SyncSettings.MAX_MINUTES) {
+                    reply(ctx, "Pick between " + SyncSettings.MIN_MINUTES + " and " + SyncSettings.MAX_MINUTES
+                            + " minutes.");
+                    return;
+                }
+                next = current.withMinutes(minutes);
+            }
+            try {
+                plugin.updateSettings(next);
+            } catch (IOException e) {
+                reply(ctx, "Couldn't save the setting: " + e.getMessage());
+                return;
+            }
+            reply(ctx, next.autoUpload()
+                    ? "Uploads while playing: every " + next.autoUploadMinutes() + " minutes (all worlds on this"
+                    + " device). Your world is also uploaded when you leave it."
+                    : "Uploads while playing: off (all worlds on this device). Your world is still uploaded when"
+                    + " you leave it.");
+        }
     }
 
     // ------------------------------------------------------------------ conflict resolution

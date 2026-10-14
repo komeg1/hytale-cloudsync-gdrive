@@ -116,6 +116,26 @@ class GoogleAuthTest {
     }
 
     @Test
+    void uploadChunksAreExactFileSlices() throws Exception {
+        byte[] data = new byte[1000];
+        for (int i = 0; i < data.length; i++) {
+            data[i] = (byte) i;
+        }
+        Path file = tmp.resolve("data.bin");
+        java.nio.file.Files.write(file, data);
+
+        try (java.io.InputStream in = GoogleDriveStorageProvider.slice(file, 300, 250)) {
+            byte[] got = in.readAllBytes();
+            assertEquals(250, got.length);
+            assertEquals(java.util.Arrays.toString(java.util.Arrays.copyOfRange(data, 300, 550)),
+                    java.util.Arrays.toString(got));
+        }
+        try (java.io.InputStream in = GoogleDriveStorageProvider.slice(file, 900, 500)) {
+            assertEquals(100, in.readAllBytes().length, "a slice past the end stops at the end of the file");
+        }
+    }
+
+    @Test
     void driveErrorsAreClassified() {
         String quota = "{\"error\":{\"code\":403,\"errors\":[{\"reason\":\"storageQuotaExceeded\"}]}}";
         assertEquals(StorageException.Kind.QUOTA, Http.failure("x", 403, quota).kind());

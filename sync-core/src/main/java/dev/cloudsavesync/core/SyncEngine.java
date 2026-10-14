@@ -48,6 +48,12 @@ public final class SyncEngine {
     /** Conflict copies and kept-aside versions retained per world. */
     public static final int KEEP_PINNED = 5;
 
+    /**
+     * Disk read limit for snapshots taken while the world is open (20 MiB/s: a ~90 MB world takes
+     * ~5 s), so the game's own chunk I/O keeps priority even on a slow drive.
+     */
+    public static final long IN_SESSION_READ_BYTES_PER_SECOND = 20L * 1024 * 1024;
+
     public static final String REASON_EXIT = "exit";
     public static final String REASON_PERIODIC = "periodic";
     public static final String REASON_MANUAL = "manual";
@@ -252,8 +258,11 @@ public final class SyncEngine {
         String id = newSnapshotId();
         Path zipPath = paths.tmpDir().resolve(CloudLayout.encode(paths.worldKey()) + "." + id + ".zip");
         try {
-            SnapshotArchiver.Result zip = SnapshotArchiver.createSnapshot(paths.saveDir(), zipPath);
-            log.info("zipped " + zip.fileCount() + " files, " + zip.sizeBytes() + " bytes");
+            long t0 = System.nanoTime();
+            SnapshotArchiver.Result zip = SnapshotArchiver.createSnapshot(paths.saveDir(), zipPath,
+                    worldClosed ? 0 : IN_SESSION_READ_BYTES_PER_SECOND);
+            log.info("zipped " + zip.fileCount() + " files, " + zip.sizeBytes() / (1024 * 1024) + " MB in "
+                    + (System.nanoTime() - t0) / 1_000_000 + " ms" + (worldClosed ? "" : " (read-limited, world open)"));
             return uploadArchive(id, zip, reason, worldClosed ? generation : OptionalLong.empty(), progress);
         } finally {
             AtomicFiles.deleteQuietly(zipPath);
@@ -265,8 +274,12 @@ public final class SyncEngine {
                                       OptionalLong clearMarkerGeneration, ProgressListener progress)
             throws IOException {
         String key = paths.worldKey();
+        long t0 = System.nanoTime();
         RemoteFile uploaded = storage.create(CloudLayout.snapshotName(key, id), CloudLayout.snapshotProps(key, id),
                 zip.zip(), progress);
+        long ms = Math.max(1, (System.nanoTime() - t0) / 1_000_000);
+        log.info("sent " + zip.sizeBytes() / (1024 * 1024) + " MB in " + ms / 1000 + " s ("
+                + zip.sizeBytes() * 1000 / ms / 1024 + " KiB/s)");
         boolean sizeOk = uploaded.size() == zip.sizeBytes();
         boolean md5Ok = uploaded.md5Hex() == null || uploaded.md5Hex().equalsIgnoreCase(zip.md5Hex());
         if (!sizeOk || !md5Ok) {

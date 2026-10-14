@@ -3,6 +3,7 @@ package dev.cloudsavesync.core;
 import dev.cloudsavesync.core.archive.LocalBackups;
 import dev.cloudsavesync.core.archive.SnapshotArchiver;
 import dev.cloudsavesync.core.local.LocalSyncLock;
+import dev.cloudsavesync.core.local.SyncSettings;
 import dev.cloudsavesync.core.local.UnsyncedMarker;
 import dev.cloudsavesync.core.local.UserDataLocator;
 import dev.cloudsavesync.core.storage.StorageException;
@@ -145,6 +146,41 @@ class LocalFilesTest {
             assertEquals(LocalBackups.KEEP, names.size());
             assertTrue(names.getFirst().startsWith("2026-10-14_12-00-02"), names.getFirst());
         }
+    }
+
+    @Test
+    void throttledSnapshotIsIdenticalButSlower() throws IOException {
+        Path save = save();
+        Files.write(save.resolve("universe/0.0.region.bin"), new byte[3 * 1024 * 1024]);
+        SnapshotArchiver.Result fast = SnapshotArchiver.createSnapshot(save, tmp.resolve("fast.zip"));
+        long t0 = System.nanoTime();
+        SnapshotArchiver.Result slow = SnapshotArchiver.createSnapshot(save, tmp.resolve("slow.zip"), 4L * 1024 * 1024);
+        long ms = (System.nanoTime() - t0) / 1_000_000;
+
+        assertTrue(ms >= 600, "3 MB at 4 MB/s should take ~750 ms, took " + ms);
+        assertEquals(entries(fast.zip()), entries(slow.zip()));
+        // Region files are stored, not deflated: the zip is at least as big as the data.
+        assertTrue(fast.sizeBytes() > 3 * 1024 * 1024, "region file must be stored uncompressed");
+    }
+
+    @Test
+    void settingsDefaultClampAndRoundTrip() throws IOException {
+        Path root = tmp.resolve("state");
+        assertEquals(SyncSettings.DEFAULTS,
+                SyncSettings.load(root));
+
+        var s = SyncSettings.DEFAULTS.withMinutes(15).withAutoUpload(false);
+        s.save(root);
+        assertEquals(s, SyncSettings.load(root));
+        assertEquals(1, SyncSettings.DEFAULTS.withMinutes(0).autoUploadMinutes());
+        assertEquals(240, SyncSettings.DEFAULTS.withMinutes(100000).autoUploadMinutes());
+
+        Files.writeString(SyncSettings.file(root), "{\"autoUploadMinutes\": 3}");
+        assertEquals(new SyncSettings(true, 3),
+                SyncSettings.load(root));
+        Files.writeString(SyncSettings.file(root), "garbage");
+        assertEquals(SyncSettings.DEFAULTS,
+                SyncSettings.load(root));
     }
 
     @Test
