@@ -218,22 +218,56 @@ public final class SnapshotArchiver {
     }
 
     private static int extractUniverse(Path zip, Path target) throws IOException {
+        return extract(zip, target, UNIVERSE + "/", 0);
+    }
+
+    /**
+     * Extracts a whole snapshot into {@code target}, which must not exist yet: a complete save
+     * folder for a world this device doesn't have. Verifies the SHA-256 first.
+     *
+     * @param maxBytesPerSecond disk write limit (the game may be running), or 0 for unlimited
+     * @return number of files written
+     */
+    public static int extractSave(Path zip, String expectedSha256, Path target, long maxBytesPerSecond)
+            throws IOException {
+        if (!sha256(zip).equalsIgnoreCase(expectedSha256)) {
+            throw new StorageException(StorageException.Kind.INTEGRITY, "downloaded save is damaged (checksum mismatch)");
+        }
+        if (Files.exists(target)) {
+            throw new IOException(target + " already exists");
+        }
+        try {
+            int n = extract(zip, target, "", maxBytesPerSecond);
+            if (!Files.isDirectory(target.resolve(UNIVERSE))) {
+                throw new StorageException(StorageException.Kind.INTEGRITY, "cloud save contains no world data");
+            }
+            return n;
+        } catch (IOException | RuntimeException e) {
+            AtomicFiles.deleteRecursively(target);
+            throw e;
+        }
+    }
+
+    /** Extracts entries under {@code prefix} (stripped) into {@code target}, rejecting unsafe paths. */
+    private static int extract(Path zip, Path target, String prefix, long maxBytesPerSecond) throws IOException {
         Files.createDirectories(target);
         Path targetRoot = target.toAbsolutePath().normalize();
+        Throttle throttle = new Throttle(maxBytesPerSecond);
+        byte[] buffer = new byte[1 << 16];
         int count = 0;
         try (InputStream in = Files.newInputStream(zip); ZipInputStream zin = new ZipInputStream(in)) {
             ZipEntry e;
             while ((e = zin.getNextEntry()) != null) {
                 String name = e.getName().replace('\\', '/');
-                if (!name.startsWith(UNIVERSE + "/")) {
+                if (!name.startsWith(prefix)) {
                     continue;
                 }
-                String inner = name.substring(UNIVERSE.length() + 1);
+                String inner = name.substring(prefix.length());
                 if (inner.isEmpty()) {
                     continue;
                 }
                 Path out = targetRoot.resolve(inner).normalize();
-                if (!out.startsWith(targetRoot)) {
+                if (!out.startsWith(targetRoot) || out.equals(targetRoot)) {
                     throw new StorageException(StorageException.Kind.INTEGRITY, "unsafe path in snapshot: " + name);
                 }
                 if (e.isDirectory()) {
@@ -241,7 +275,13 @@ public final class SnapshotArchiver {
                     continue;
                 }
                 Files.createDirectories(out.getParent());
-                Files.copy(zin, out);
+                try (OutputStream os = Files.newOutputStream(out)) {
+                    int n;
+                    while ((n = zin.read(buffer)) > 0) {
+                        os.write(buffer, 0, n);
+                        throttle.consumed(n);
+                    }
+                }
                 FileTime t = e.getLastModifiedTime();
                 if (t != null) {
                     Files.setLastModifiedTime(out, t);

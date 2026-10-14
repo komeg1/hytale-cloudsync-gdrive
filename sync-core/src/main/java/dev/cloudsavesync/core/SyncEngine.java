@@ -233,6 +233,12 @@ public final class SyncEngine {
         return backup;
     }
 
+    /** Records that the local world now matches cloud {@code revision} (after an import). */
+    public void recordSynced(long revision, String snapshotId) throws IOException {
+        saveLocal(LocalState.NEVER_SYNCED.synced(revision, snapshotId, clock.instant()));
+        marker.clear();
+    }
+
     // ---------------------------------------------------------------- uploading
 
     public enum UploadOutcome {

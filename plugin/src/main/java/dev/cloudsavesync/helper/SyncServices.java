@@ -2,6 +2,7 @@ package dev.cloudsavesync.helper;
 
 import dev.cloudsavesync.core.SyncEngine;
 import dev.cloudsavesync.core.SyncLog;
+import dev.cloudsavesync.core.WorldImporter;
 import dev.cloudsavesync.core.local.DeviceInfo;
 import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.storage.StorageProvider;
@@ -61,5 +62,9 @@ public final class SyncServices {
 
     public SyncEngine engine(WorldPaths paths, SyncLog log) {
         return new SyncEngine(storage, paths, device, clock, log);
+    }
+
+    public WorldImporter importer(java.nio.file.Path savesDir, java.nio.file.Path stateRoot, SyncLog log) {
+        return new WorldImporter(storage, savesDir, stateRoot, device, clock, log);
     }
 }
