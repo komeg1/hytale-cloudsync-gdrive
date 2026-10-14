@@ -74,8 +74,16 @@ public final class GoogleAuth {
     public record BrowserSignIn(String url, CompletableFuture<Void> result, Runnable cancel) {
     }
 
+    /** False if this build has no Desktop client: use {@link #startCodeSignIn} instead. */
+    public boolean supportsBrowserSignIn() {
+        return clients.hasDesktop();
+    }
+
     public BrowserSignIn startBrowserSignIn() throws IOException {
         GoogleClients.Client client = clients.desktop();
+        if (client == null) {
+            throw new StorageException(StorageException.Kind.OTHER, "browser sign-in isn't available in this build");
+        }
         String verifier = randomUrlSafe(64);
         String state = randomUrlSafe(24);
         CompletableFuture<Void> result = new CompletableFuture<>();
@@ -269,6 +277,11 @@ public final class GoogleAuth {
         GoogleAccountStore.Account account = store.load().orElseThrow(() -> new StorageException(
                 StorageException.Kind.AUTH_REQUIRED, "not signed in to Google"));
         GoogleClients.Client client = clients.get(account.client());
+        if (client == null) {
+            // Signed in with a client this build no longer has: sign in again.
+            store.delete();
+            throw new StorageException(StorageException.Kind.AUTH_REQUIRED, "please sign in again");
+        }
         Map<String, String> form = new HashMap<>();
         form.put("client_id", client.id());
         form.put("client_secret", client.secret());
