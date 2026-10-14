@@ -50,12 +50,19 @@ val generateOAuthResource by tasks.registering {
             return@doLast
         }
         val p = Properties().apply { secrets.inputStream().use { load(it) } }
-        val keys = listOf("desktop.client_id", "desktop.client_secret", "tv.client_id", "tv.client_secret")
-        val missing = keys.filter { p.getProperty("google.$it").isNullOrBlank() }
+        fun value(key: String) = p.getProperty("google.$key")?.trim().orEmpty()
+        // The TV (code sign-in) client is required; the Desktop (browser sign-in) client is optional.
+        val required = listOf("tv.client_id", "tv.client_secret")
+        val missing = required.filter { value(it).isEmpty() }
         if (missing.isNotEmpty()) {
             throw GradleException("secrets.properties is missing: " + missing.joinToString { "google.$it" })
         }
-        out.writeText(keys.joinToString("\n", postfix = "\n") { "$it=" + p.getProperty("google.$it").trim() })
+        val desktop = listOf("desktop.client_id", "desktop.client_secret")
+        val keys = if (desktop.all { value(it).isNotEmpty() }) required + desktop else {
+            logger.warn("No Google Desktop client in secrets.properties: /cloudsync login will use code sign-in.")
+            required
+        }
+        out.writeText(keys.joinToString("\n", postfix = "\n") { "$it=" + value(it) })
     }
 }
 

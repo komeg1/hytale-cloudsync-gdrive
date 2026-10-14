@@ -79,7 +79,7 @@ final class CloudSyncCommand extends AbstractCommandCollection {
             reply(ctx, "Already signed in. Use /cloudsync logout first to switch accounts.");
             return;
         }
-        if (DeviceInfo.isSteamDeck()) {
+        if (DeviceInfo.isSteamDeck() || !plugin.services.auth().supportsBrowserSignIn()) {
             code(ctx, out);
             return;
         }
