@@ -101,30 +101,30 @@
       link on your phone or computer, enter the code and allow access. On computers with browser sign-in
       available, a browser window opens instead.</p>
     <pre class="chat"><span class="you">/cloudsync login</span>
-[Cloud Save] On your phone or computer, go to https://www.google.com/device and enter the code
-[Cloud Save] ABCD-EFGH
-[Cloud Save] The code works for 30 minutes. This chat will tell you when you're signed in.
-[Cloud Save] Signed in as you@gmail.com.</pre>
+[Cloud Sync] On your phone or computer, go to https://www.google.com/device and enter the code
+[Cloud Sync] ABCD-EFGH
+[Cloud Sync] The code works for 30 minutes. This chat will tell you when you're signed in.
+[Cloud Sync] Signed in as you@gmail.com.</pre>
     <p>Signing in doesn't start syncing anything: use <a href="#cmd-enable">enable</a> for each world.</p>
 
     <h3 id="cmd-code">/cloudsync code</h3>
     <p>The same as <code>login</code>, but always uses a code. Use it if a browser window doesn't open.</p>
     <pre class="chat"><span class="you">/cloudsync code</span>
-[Cloud Save] Getting a sign-in code...
-[Cloud Save] On your phone or computer, go to https://www.google.com/device and enter the code
-[Cloud Save] ABCD-EFGH</pre>
+[Cloud Sync] Getting a sign-in code...
+[Cloud Sync] On your phone or computer, go to https://www.google.com/device and enter the code
+[Cloud Sync] ABCD-EFGH</pre>
 
     <h3 id="cmd-logout">/cloudsync logout</h3>
     <p>Signs out on this device and asks Google to remove the mod's access. Your worlds in Google Drive stay
       there. Nothing syncs until you sign in again.</p>
     <pre class="chat"><span class="you">/cloudsync logout</span>
-[Cloud Save] Signed out on this device. Your cloud saves stay in your Google Drive.</pre>
+[Cloud Sync] Signed out on this device. Your cloud saves stay in your Google Drive.</pre>
 
     <h3 id="cmd-enable">/cloudsync enable</h3>
     <p>Starts syncing the world you're in with the Google account you're signed in with, and uploads it right away.</p>
     <pre class="chat"><span class="you">/cloudsync enable</span>
-[Cloud Save] This world is now synced with your Google Drive. Uploading it now...
-[Cloud Save] Backed up to Google Drive (88 MB).</pre>
+[Cloud Sync] This world is now synced with your Google Drive. Uploading it now...
+[Cloud Sync] Backed up to Google Drive (88 MB).</pre>
     <p>If your Google Drive already has a world with the same name, nothing is overwritten. You're asked to
       choose a version (see <a href="#conflicts">Conflicts</a>).</p>
 
@@ -132,24 +132,24 @@
     <p>Stops syncing this world on this device. Its copies in Google Drive stay there and your other devices
       aren't affected.</p>
     <pre class="chat"><span class="you">/cloudsync disable</span>
-[Cloud Save] 'My Survival' won't sync on this device any more. Its copy in your Google Drive stays there. Type /cloudsync enable to sync it again.</pre>
+[Cloud Sync] 'My Survival' won't sync on this device any more. Its copy in your Google Drive stays there. Type /cloudsync enable to sync it again.</pre>
 
     <h3 id="cmd-list">/cloudsync list</h3>
     <p>Lists your worlds in Google Drive with a number for each, where they are, and when and where they
       were last saved.</p>
     <pre class="chat"><span class="you">/cloudsync list</span>
-[Cloud Save] Your worlds in Google Drive:
-[Cloud Save] [1] My Survival - this world, saved 5 min ago on GAMING-PC, 88 MB
-[Cloud Save] [2] Creative Build - not on this device, saved 2 hours ago on Steam Deck, 120 MB
-[Cloud Save] To download, type /cloudsync download and the numbers, e.g. /cloudsync download 2 or /cloudsync download 1,3</pre>
+[Cloud Sync] Your worlds in Google Drive:
+[Cloud Sync] [1] My Survival - this world, saved 5 min ago on GAMING-PC, 88 MB
+[Cloud Sync] [2] Creative Build - not on this device, saved 2 hours ago on Steam Deck, 120 MB
+[Cloud Sync] To download, type /cloudsync download and the numbers, e.g. /cloudsync download 2 or /cloudsync download 1,3</pre>
 
     <h3 id="cmd-download">/cloudsync download</h3>
     <p>Downloads worlds by their number in <code>/cloudsync list</code>. They appear in your world list when
       you go back to the main menu.</p>
     <pre class="chat"><span class="you">/cloudsync download 2</span>
-[Cloud Save] Downloading 'Creative Build' (120 MB)...
-[Cloud Save] Added 'Creative Build' (saved 2 hours ago on Steam Deck).
-[Cloud Save] It will be in your world list when you go back to the main menu. If not, restart the game.</pre>
+[Cloud Sync] Downloading 'Creative Build' (120 MB)...
+[Cloud Sync] Added 'Creative Build' (saved 2 hours ago on Steam Deck).
+[Cloud Sync] It will be in your world list when you go back to the main menu. If not, restart the game.</pre>
     <p>More examples:</p>
     <table>
       <tr><td><code>/cloudsync download 1,3</code></td><td>worlds 1 and 3</td></tr>
@@ -160,20 +160,20 @@
     <h3 id="cmd-upload">/cloudsync upload</h3>
     <p>Backs up the world you're in now, without waiting for the next automatic upload.</p>
     <pre class="chat"><span class="you">/cloudsync upload</span>
-[Cloud Save] Uploading this world...
-[Cloud Save] Uploading... 50%
-[Cloud Save] Backed up to Google Drive (88 MB).</pre>
+[Cloud Sync] Uploading this world...
+[Cloud Sync] Uploading... 50%
+[Cloud Sync] Backed up to Google Drive (88 MB).</pre>
 
     <h3 id="cmd-status">/cloudsync status</h3>
     <p>Shows the account you're signed in with, when this world was last synced, how uploads are set up,
       how the last upload after leaving went, and the newest version in the cloud.</p>
     <pre class="chat"><span class="you">/cloudsync status</span>
-[Cloud Save] World 'My Survival' on GAMING-PC. Signed in to Google Drive as you@gmail.com.
-[Cloud Save] Last synced 3 min ago (cloud revision 12).
-[Cloud Save] Changes are uploaded every 7 minutes and when you leave the world (/cloudsync auto to change).
-[Cloud Save] Type /cloudsync list to see all your worlds in Google Drive.
-[Cloud Save] Last upload after leaving: done - uploaded as cloud revision 11 (2 hours ago).
-[Cloud Save] Cloud: current version from GAMING-PC, 3 min ago (88 MB); 5 versions kept.</pre>
+[Cloud Sync] World 'My Survival' on GAMING-PC. Signed in to Google Drive as you@gmail.com.
+[Cloud Sync] Last synced 3 min ago (cloud revision 12).
+[Cloud Sync] Changes are uploaded every 7 minutes and when you leave the world (/cloudsync auto to change).
+[Cloud Sync] Type /cloudsync list to see all your worlds in Google Drive.
+[Cloud Sync] Last upload after leaving: done - uploaded as cloud revision 11 (2 hours ago).
+[Cloud Sync] Cloud: current version from GAMING-PC, 3 min ago (88 MB); 5 versions kept.</pre>
 
     <h3 id="cmd-auto">/cloudsync auto</h3>
     <p>Controls uploads while you play. Applies to all worlds on this device. The upload when you leave a
@@ -184,7 +184,7 @@
       <tr><td><code>/cloudsync auto on</code></td><td>turn it back on</td></tr>
     </table>
     <pre class="chat"><span class="you">/cloudsync auto 15</span>
-[Cloud Save] Uploads while playing: every 15 minutes (all worlds on this device). Your world is also uploaded when you leave it.</pre>
+[Cloud Sync] Uploads while playing: every 15 minutes (all worlds on this device). Your world is also uploaded when you leave it.</pre>
 
     <h3 id="cmd-keep">/cloudsync keep</h3>
     <p>How many copies of this world Google Drive keeps. The setting is saved with the world, so all your
@@ -194,7 +194,7 @@
       <tr><td><code>/cloudsync keep 3</code></td><td>keep the 3 newest copies (1–20, default 5)</td></tr>
     </table>
     <pre class="chat"><span class="you">/cloudsync keep 3</span>
-[Cloud Save] Google Drive will keep the 3 newest copies of 'My Survival' (for all your devices). Removed 2 older copies (176 MB).</pre>
+[Cloud Sync] Google Drive will keep the 3 newest copies of 'My Survival' (for all your devices). Removed 2 older copies (176 MB).</pre>
 
     <h3 id="cmd-conflict">/cloudsync usecloud / keeplocal</h3>
     <p>Used after a <a href="#conflicts">conflict</a>, when you're asked which version of a world to keep.</p>
@@ -230,22 +230,22 @@
       while you play. That mark is only cleared after Google confirms an upload. This is how the mod knows
       when a newer cloud version can safely replace your copy, and when to ask you instead.</p>
     <p>If a world was recently open on another device, you see a warning when you open it:</p>
-    <pre class="chat">[Cloud Save] This world was last seen open on Steam Deck 2 min ago. If it's still open there, close it there first, or your changes there and here will conflict.</pre>
+    <pre class="chat">[Cloud Sync] This world was last seen open on Steam Deck 2 min ago. If it's still open there, close it there first, or your changes there and here will conflict.</pre>
     <p>For the smoothest experience, quit the world on one device before opening it on another.</p>
 
     <h2 id="conflicts">Conflicts</h2>
     <p>A conflict happens when Google Drive has a newer version of a world <strong>and</strong> this device has
       changes that were never uploaded, for example after playing the same world offline on two devices.
       The mod never overwrites anything in that case:</p>
-    <pre class="chat">[Cloud Save] Your Google Drive has a newer version of this world, a version from Steam Deck (1 hour ago), and this device has changes that were never uploaded. Nothing was overwritten.
-[Cloud Save] Type /cloudsync usecloud to switch to the cloud version (this one is backed up), or /cloudsync keeplocal to keep this one (the cloud one stays in the history).</pre>
+    <pre class="chat">[Cloud Sync] Your Google Drive has a newer version of this world, a version from Steam Deck (1 hour ago), and this device has changes that were never uploaded. Nothing was overwritten.
+[Cloud Sync] Type /cloudsync usecloud to switch to the cloud version (this one is backed up), or /cloudsync keeplocal to keep this one (the cloud one stays in the history).</pre>
     <p>Until you choose, you play this device's version and it isn't uploaded over the cloud version.
       Whichever you choose, the other version is kept: as a local backup with <code>usecloud</code>, or as a
       pinned copy in Google Drive with <code>keeplocal</code>.</p>
 
     <h2 id="offline">Playing offline</h2>
     <p>Without an internet connection, the world loads from your device as usual and you see:</p>
-    <pre class="chat">[Cloud Save] No connection to Google Drive; playing your local copy. It will sync when you're back online.</pre>
+    <pre class="chat">[Cloud Sync] No connection to Google Drive; playing your local copy. It will sync when you're back online.</pre>
     <p>Nothing is lost. The next time you play that world online, your progress is uploaded, and if another
       device uploaded a newer version in the meantime, you're asked which one to keep.</p>
 

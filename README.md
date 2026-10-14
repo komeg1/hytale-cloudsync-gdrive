@@ -104,9 +104,9 @@ You only need to do this once per device.
 
 ```
 /cloudsync login
-[Cloud Save] On your phone or computer, go to https://www.google.com/device and enter the code
-[Cloud Save] ABCD-EFGH
-[Cloud Save] Signed in as you@gmail.com.
+[Cloud Sync] On your phone or computer, go to https://www.google.com/device and enter the code
+[Cloud Sync] ABCD-EFGH
+[Cloud Sync] Signed in as you@gmail.com.
 ```
 
 Signing in never starts syncing a world on its own: use [`enable`](#cloudsync-enable) for each world.
@@ -126,8 +126,8 @@ Starts syncing the world you're in with the account you're signed in with, and u
 
 ```
 /cloudsync enable
-[Cloud Save] This world is now synced with your Google Drive. Uploading it now...
-[Cloud Save] Backed up to Google Drive (88 MB).
+[Cloud Sync] This world is now synced with your Google Drive. Uploading it now...
+[Cloud Sync] Backed up to Google Drive (88 MB).
 ```
 
 If your Google Drive already has a world with the same name, nothing is overwritten: you're asked to
@@ -144,10 +144,10 @@ Shows all your worlds in Google Drive, numbered.
 
 ```
 /cloudsync list
-[Cloud Save] Your worlds in Google Drive:
-[Cloud Save] [1] My Survival - this world, saved 5 min ago on GAMING-PC, 88 MB
-[Cloud Save] [2] Creative Build - not on this device, saved 2 hours ago on Steam Deck, 120 MB
-[Cloud Save] To download, type /cloudsync download and the numbers, e.g. /cloudsync download 2 or /cloudsync download 1,3
+[Cloud Sync] Your worlds in Google Drive:
+[Cloud Sync] [1] My Survival - this world, saved 5 min ago on GAMING-PC, 88 MB
+[Cloud Sync] [2] Creative Build - not on this device, saved 2 hours ago on Steam Deck, 120 MB
+[Cloud Sync] To download, type /cloudsync download and the numbers, e.g. /cloudsync download 2 or /cloudsync download 1,3
 ```
 
 ### `/cloudsync download`
@@ -169,9 +169,9 @@ Backs up the world you're in right now, instead of waiting for the next automati
 
 ```
 /cloudsync upload
-[Cloud Save] Uploading this world...
-[Cloud Save] Uploading... 50%
-[Cloud Save] Backed up to Google Drive (88 MB).
+[Cloud Sync] Uploading this world...
+[Cloud Sync] Uploading... 50%
+[Cloud Sync] Backed up to Google Drive (88 MB).
 ```
 
 ### `/cloudsync status`
