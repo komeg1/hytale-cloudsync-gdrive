@@ -15,11 +15,17 @@ java {
 
 repositories {
     mavenCentral()
+    maven {
+        name = "Hytale"
+        url = uri("https://maven.hytale.com/release")
+    }
 }
+
+val hytaleServerVersion = property("hytale_server_version").toString()
 
 dependencies {
     // Provided by the server at runtime; never bundled into our jar.
-    compileOnly(files(rootDir.resolve("libs/HytaleServer.jar")))
+    compileOnly("com.hypixel.hytale:Server:$hytaleServerVersion")
     // Bundled into our jar (see tasks.jar) so the detached upload helper can run from it alone.
     implementation(project(":gdrive"))
 }
