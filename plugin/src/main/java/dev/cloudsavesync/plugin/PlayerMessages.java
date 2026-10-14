@@ -30,7 +30,7 @@ final class PlayerMessages {
     }
 
     static Message line(String color, String text) {
-        return Message.join(Message.raw("[Cloud Save] ").color(color), Message.raw(text));
+        return Message.join(Message.raw("[Cloud Sync] ").color(color), Message.raw(text));
     }
 
     static Message link(String url) {
