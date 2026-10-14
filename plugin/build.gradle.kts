@@ -52,7 +52,7 @@ val generateOAuthResource by tasks.registering {
         if (!secrets.isFile) {
             out.delete()
             logger.warn("secrets.properties not found: this build can't sign in to Google. "
-                    + "Copy secrets.properties.example to secrets.properties and fill it in.")
+                    + "Create secrets.properties with google.tv.client_id and google.tv.client_secret.")
             return@doLast
         }
         val p = Properties().apply { secrets.inputStream().use { load(it) } }
