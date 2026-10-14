@@ -76,6 +76,8 @@ public class CloudSyncPlugin extends JavaPlugin {
         /** Not a singleplayer save, or a build without Google credentials. */
         DISABLED,
         SIGNED_OUT,
+        /** Signed in, but this world isn't synced on this device (worlds are opt-in). */
+        NOT_SYNCED,
         NORMAL,
         /** Cloud has a newer version and this device has unsynced changes: waiting for the player. */
         CONFLICT,
@@ -144,15 +146,21 @@ public class CloudSyncPlugin extends JavaPlugin {
             engine = services.engine(paths, log);
             settings = SyncSettings.load(paths.stateRoot());
             log.info("uploads during play: " + (settings.autoUpload()
-                    ? "every " + settings.autoUploadMinutes() + " min" : "off") + ", download cloud worlds: "
-                    + (settings.downloadWorlds() ? "on" : "off") + " (" + SyncSettings.file(paths.stateRoot()) + ")");
+                    ? "every " + settings.autoUploadMinutes() + " min" : "off") + " (" + SyncSettings.file(paths.stateRoot()) + ")");
 
             reportPreviousHelper();
             waitForHelperToFinishReading();
 
             if (services.auth().isSignedIn()) {
-                mode = Mode.NORMAL;
-                loadTimeSync();
+                if (engine.isSyncEnabled()) {
+                    mode = Mode.NORMAL;
+                    loadTimeSync();
+                } else {
+                    mode = Mode.NOT_SYNCED;
+                    log.info("world '" + paths.worldKey() + "' is not synced on this device");
+                    messages.info("This world isn't synced. Type /cloudsync enable to back it up to your Google Drive.");
+                }
+                io.execute(this::announceCloudWorlds);
             } else {
                 mode = Mode.SIGNED_OUT;
                 messages.info("Not signed in. Type /cloudsync login to back this world up to your Google Drive"
@@ -195,6 +203,7 @@ public class CloudSyncPlugin extends JavaPlugin {
             engine.marker().mark("exit " + sessionId);
             switch (mode) {
                 case SIGNED_OUT -> log.info("not signed in: world stays marked unsynced until you sign in");
+                case NOT_SYNCED -> log.info("world isn't synced on this device; nothing to upload");
                 case SWITCH_PENDING -> log.info("cloud version will be applied at next load; no upload");
                 default -> launchHelper();
             }
@@ -318,7 +327,6 @@ public class CloudSyncPlugin extends JavaPlugin {
                 warnAboutOtherDevice(cloud);
                 RemoteFile existingLock = cloud.lockFile();
                 io.execute(() -> acquireSessionLock(existingLock));
-                io.execute(this::importCloudWorlds);
             }
         }
     }
@@ -558,72 +566,232 @@ public class CloudSyncPlugin extends JavaPlugin {
         if (mode == Mode.DISABLED) {
             return;
         }
-        mode = Mode.NORMAL;
         io.execute(() -> {
             try {
-                CloudState cloud = engine.fetch();
-                StartPlan plan = engine.planStart(cloud);
-                log.info("after sign-in: " + plan.action() + " (" + plan.why() + ")");
-                if (plan.action() == StartPlan.Action.CONFLICT || plan.action() == StartPlan.Action.RESTORE) {
-                    // The world is already loaded and this session has changed it: never overwrite, ask.
-                    act(new StartPlan(StartPlan.Action.CONFLICT, plan.snapshot(), plan.cloudRevision(), plan.why()), 0);
+                if (engine.isSyncEnabled()) {
+                    mode = Mode.NORMAL;
+                    startSyncingRunningWorld("after sign-in");
                 } else {
-                    messages.info("This world will now be backed up to your Google Drive while you play.");
-                    lastUploadAttempt = Instant.now().minus(interval()).plus(Duration.ofSeconds(30));
+                    mode = Mode.NOT_SYNCED;
+                    messages.info("This world isn't synced. Type /cloudsync enable to back it up to your Google Drive.");
                 }
-                warnAboutOtherDevice(cloud);
-                acquireSessionLock(cloud.lockFile());
             } catch (IOException e) {
                 log.warn("post sign-in check failed", e);
             }
-            importCloudWorlds();
+            announceCloudWorlds();
         });
     }
 
     /**
-     * Downloads cloud worlds this device doesn't have into the Saves folder, so they show up in the
-     * world list next time the player is in the main menu (a server plugin can't run there). Runs on
-     * the io thread after the load-time check and after sign-in.
+     * Cloud check for a world that is already running (after sign-in or /cloudsync enable). The world
+     * is loaded and this session has changed it, so a newer cloud version is never applied here: it
+     * becomes a conflict for the player to resolve. Otherwise this world is uploaded right away.
+     * Runs on the io thread.
      */
-    void importCloudWorlds() {
-        if (mode == Mode.DISABLED || !settings.downloadWorlds() || !services.auth().isSignedIn()) {
+    private void startSyncingRunningWorld(String why) throws IOException {
+        CloudState cloud = engine.fetch();
+        StartPlan plan = engine.planStart(cloud);
+        log.info(why + ": " + plan.action() + " (" + plan.why() + ")");
+        warnAboutOtherDevice(cloud);
+        acquireSessionLock(cloud.lockFile());
+        if (plan.action() == StartPlan.Action.CONFLICT || plan.action() == StartPlan.Action.RESTORE) {
+            act(new StartPlan(StartPlan.Action.CONFLICT, plan.snapshot(), plan.cloudRevision(), plan.why()), 0);
             return;
         }
-        WorldImporter importer = services.importer(paths.saveDir().getParent(), paths.stateRoot(), log);
-        List<WorldImporter.CloudWorld> missing;
+        messages.info("This world is now synced with your Google Drive. Uploading it now...");
+        upload(SyncEngine.REASON_MANUAL, ProgressListener.NONE, true);
+    }
+
+    /** {@code /cloudsync enable}: start syncing this world. Runs on the io thread. */
+    void enableSync() {
         try {
-            missing = importer.missing(importer.cloudWorlds());
-        } catch (IOException e) {
-            log.warn("could not list cloud worlds (" + e.getMessage() + ")", null);
-            return;
-        }
-        if (missing.isEmpty()) {
-            return;
-        }
-        String names = String.join(", ", missing.stream().map(w -> "'" + w.worldKey() + "'").toList());
-        messages.info("Found " + (missing.size() == 1 ? "a world" : missing.size() + " worlds")
-                + " in your Google Drive that " + (missing.size() == 1 ? "isn't" : "aren't") + " on this device: "
-                + names + ". Downloading in the background...");
-        int added = 0;
-        for (WorldImporter.CloudWorld w : missing) {
-            if (mode == Mode.DISABLED || io.isShutdown()) {
+            if (mode != Mode.NOT_SYNCED && engine.isSyncEnabled()) {
+                messages.info("This world is already synced. /cloudsync status shows the details.");
                 return;
             }
+            engine.setSyncEnabled(true);
+            mode = Mode.NORMAL;
+            startSyncingRunningWorld("enable");
+        } catch (StorageException e) {
+            reportUploadError(e, true);
+        } catch (IOException e) {
+            log.warn("enable failed", e);
+            messages.error("Couldn't turn on sync for this world: " + e.getMessage());
+        }
+    }
+
+    /** {@code /cloudsync disable}: stop syncing this world on this device. Runs on the io thread. */
+    void disableSync() {
+        try {
+            if (mode == Mode.NOT_SYNCED) {
+                messages.info("This world isn't synced.");
+                return;
+            }
+            engine.setSyncEnabled(false);
+            mode = Mode.NOT_SYNCED;
+            sessionLock = null;
+            try {
+                engine.releaseSessionLock(sessionId);
+            } catch (IOException e) {
+                log.info("could not release the session lock (" + e.getMessage() + "); it goes stale on its own");
+            }
+            sessionLockFile = null;
+            messages.info("'" + paths.worldKey() + "' won't sync on this device any more. Its copy in your Google Drive"
+                    + " stays there. Type /cloudsync enable to sync it again.");
+        } catch (IOException e) {
+            messages.error("Couldn't turn off sync for this world: " + e.getMessage());
+        }
+    }
+
+    private WorldImporter importer() {
+        return services.importer(paths.saveDir().getParent(), paths.stateRoot(), log);
+    }
+
+    /** The numbering shown by the last {@code /cloudsync list}, so {@code download 2} means what the player saw. */
+    private volatile List<String> listedWorlds;
+
+    /** On join: tell the player about their cloud worlds. Runs on the io thread. */
+    void announceCloudWorlds() {
+        if (!services.auth().isSignedIn()) {
+            return;
+        }
+        try {
+            List<WorldImporter.CloudWorld> all = importer().cloudWorlds();
+            if (all.isEmpty()) {
+                return;
+            }
+            long notHere = all.stream().filter(w -> !onThisDevice(w.worldKey())).count();
+            messages.info("You have " + all.size() + (all.size() == 1 ? " world" : " worlds") + " in your Google Drive"
+                    + (notHere == 0 ? "" : ", " + notHere + " not on this device") + ". Type /cloudsync list to see them.");
+        } catch (IOException e) {
+            log.info("could not list cloud worlds (" + e.getMessage() + ")");
+        }
+    }
+
+    /** {@code /cloudsync list}. Runs on the io thread. */
+    void listCloudWorlds() {
+        List<WorldImporter.CloudWorld> all;
+        try {
+            all = importer().cloudWorlds();
+        } catch (IOException e) {
+            messages.warn("Couldn't reach Google Drive: " + e.getMessage());
+            return;
+        }
+        listedWorlds = all.stream().map(WorldImporter.CloudWorld::worldKey).toList();
+        if (all.isEmpty()) {
+            messages.info("There are no worlds in your Google Drive yet. Type /cloudsync enable in a world to sync it.");
+            return;
+        }
+        messages.info("Your worlds in Google Drive:");
+        Instant now = Instant.now();
+        boolean anyMissing = false;
+        for (int i = 0; i < all.size(); i++) {
+            WorldImporter.CloudWorld w = all.get(i);
+            String where;
+            if (w.worldKey().equals(paths.worldKey())) {
+                where = "this world";
+            } else if (onThisDevice(w.worldKey())) {
+                where = "on this device";
+            } else {
+                where = "not on this device";
+                anyMissing = true;
+            }
+            messages.info("[" + (i + 1) + "] " + w.worldKey() + " - " + where + ", saved "
+                    + PlayerMessages.ago(w.head().createdAt(), now) + " on " + w.head().deviceName() + ", "
+                    + PlayerMessages.megabytes(w.head().sizeBytes()));
+        }
+        if (anyMissing) {
+            messages.info("To download, type /cloudsync download and the numbers, e.g. /cloudsync download 2"
+                    + " or /cloudsync download 1,3");
+        }
+    }
+
+    /** {@code /cloudsync download 1,3} or {@code all}. Runs on the io thread. */
+    void downloadCloudWorlds(String spec) {
+        List<String> numbered = listedWorlds;
+        try {
+            if (numbered == null) {
+                numbered = importer().cloudWorlds().stream().map(WorldImporter.CloudWorld::worldKey).toList();
+                listedWorlds = numbered;
+            }
+        } catch (IOException e) {
+            messages.warn("Couldn't reach Google Drive: " + e.getMessage());
+            return;
+        }
+        List<String> wanted = new java.util.ArrayList<>();
+        String trimmed = spec.trim().toLowerCase(java.util.Locale.ROOT);
+        if (trimmed.equals("all")) {
+            numbered.stream().filter(k -> !onThisDevice(k)).forEach(wanted::add);
+        } else {
+            for (String part : trimmed.split("[,;\\s]+")) {
+                if (part.isEmpty()) {
+                    continue;
+                }
+                int n;
+                try {
+                    n = Integer.parseInt(part);
+                } catch (NumberFormatException e) {
+                    messages.warn("'" + part + "' isn't a number. Type /cloudsync list, then e.g. /cloudsync download 2");
+                    return;
+                }
+                if (n < 1 || n > numbered.size()) {
+                    messages.warn("There's no world number " + n + ". Type /cloudsync list to see the numbers.");
+                    return;
+                }
+                if (!wanted.contains(numbered.get(n - 1))) {
+                    wanted.add(numbered.get(n - 1));
+                }
+            }
+        }
+        if (wanted.isEmpty()) {
+            messages.info(trimmed.equals("all") ? "All your cloud worlds are already on this device."
+                    : "Type /cloudsync list, then e.g. /cloudsync download 2");
+            return;
+        }
+
+        WorldImporter importer = importer();
+        java.util.Map<String, WorldImporter.CloudWorld> current = new java.util.HashMap<>();
+        try {
+            // Fresh manifests: the list may be minutes old and its snapshots pruned since.
+            importer.cloudWorlds().forEach(w -> current.put(w.worldKey(), w));
+        } catch (IOException e) {
+            messages.warn("Couldn't reach Google Drive: " + e.getMessage());
+            return;
+        }
+        int added = 0;
+        for (String key : wanted) {
+            WorldImporter.CloudWorld w = current.get(key);
+            if (w == null) {
+                messages.warn("'" + key + "' isn't in your Google Drive any more.");
+                continue;
+            }
+            if (onThisDevice(key)) {
+                messages.info("'" + key + "' is already on this device.");
+                continue;
+            }
+            if (!WorldImporter.isSafeFolderName(key)) {
+                messages.warn("'" + key + "' can't be downloaded here: its name isn't a valid folder name on this system.");
+                continue;
+            }
+            messages.info("Downloading '" + key + "' (" + PlayerMessages.megabytes(w.head().sizeBytes()) + ")...");
             try {
                 importer.importWorld(w, ProgressListener.NONE, SyncEngine.IN_SESSION_READ_BYTES_PER_SECOND);
                 added++;
-                messages.info("Added '" + w.worldKey() + "' (from " + w.head().deviceName() + ", "
-                        + PlayerMessages.ago(w.head().createdAt(), Instant.now()) + ").");
+                messages.info("Added '" + key + "' (saved " + PlayerMessages.ago(w.head().createdAt(), Instant.now())
+                        + " on " + w.head().deviceName() + ").");
             } catch (IOException e) {
-                log.warn("could not import cloud world '" + w.worldKey() + "'", e);
-                messages.warn("Couldn't download '" + w.worldKey() + "' (" + e.getMessage()
-                        + "). It will be tried again next time.");
+                log.warn("could not download cloud world '" + key + "'", e);
+                messages.warn("Couldn't download '" + key + "' (" + e.getMessage() + "). Try again later.");
             }
         }
         if (added > 0) {
             messages.info((added == 1 ? "It" : "They") + " will be in your world list when you go back to the main"
-                    + " menu.");
+                    + " menu. If not, restart the game.");
         }
+    }
+
+    private boolean onThisDevice(String worldKey) {
+        return java.nio.file.Files.exists(paths.saveDir().getParent().resolve(worldKey));
     }
 
     PlayerMessages messages() {
@@ -658,8 +826,7 @@ public class CloudSyncPlugin extends JavaPlugin {
         next.save(paths.stateRoot());
         settings = next;
         lastUploadAttempt = Instant.now();
-        log.info("uploads during play: " + (next.autoUpload() ? "every " + next.autoUploadMinutes() + " min" : "off")
-                + ", download cloud worlds: " + (next.downloadWorlds() ? "on" : "off"));
+        log.info("uploads during play: " + (next.autoUpload() ? "every " + next.autoUploadMinutes() + " min" : "off"));
     }
 
     /**

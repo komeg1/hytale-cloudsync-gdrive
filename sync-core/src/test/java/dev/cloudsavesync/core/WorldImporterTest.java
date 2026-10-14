@@ -115,6 +115,38 @@ class WorldImporterTest {
     }
 
     @Test
+    void worldsAreOptInButSyncedAndDownloadedWorldsCountAsEnabled() throws IOException {
+        Path userData = tmp.resolve("pc/UserData");
+        WorldPaths fresh = WorldPaths.of(Files.createDirectories(userData.resolve("Saves/Brand New/universe")).getParent(),
+                userData.resolve("CloudSaveSync"));
+        SyncEngine newWorld = new SyncEngine(cloud, fresh, new DeviceInfo("pc-id", "Gaming PC"), clock, QUIET);
+        assertFalse(newWorld.isSyncEnabled(), "a new world is not synced until the player enables it");
+        newWorld.setSyncEnabled(true);
+        assertTrue(newWorld.isSyncEnabled());
+        newWorld.setSyncEnabled(false);
+        assertFalse(newWorld.isSyncEnabled());
+
+        SyncEngine alreadySynced = new SyncEngine(cloud, WorldPaths.of(userData.resolve("Saves/Alpha"),
+                userData.resolve("CloudSaveSync")), new DeviceInfo("pc-id", "Gaming PC"), clock, QUIET);
+        assertTrue(alreadySynced.isSyncEnabled(), "worlds synced before opt-in existed stay on");
+
+        Path imported = deck.importWorld(deck.cloudWorlds().getFirst(), ProgressListener.NONE, 0);
+        SyncEngine onDeck = new SyncEngine(cloud, WorldPaths.of(imported, deckSaves.getParent().resolve("CloudSaveSync")),
+                new DeviceInfo("deck-id", "Steam Deck"), clock, QUIET);
+        assertTrue(onDeck.isSyncEnabled(), "a downloaded world keeps syncing");
+    }
+
+    @Test
+    void anExplicitDownloadBringsBackAWorldDeletedHere() throws IOException {
+        WorldImporter.CloudWorld alpha = deck.cloudWorlds().getFirst();
+        dev.cloudsavesync.core.local.AtomicFiles.deleteRecursively(deck.importWorld(alpha, ProgressListener.NONE, 0));
+        assertFalse(names(deck.missing(deck.cloudWorlds())).contains("Alpha"), "not offered automatically");
+
+        Path again = deck.importWorld(alpha, ProgressListener.NONE, 0);
+        assertTrue(Files.exists(again.resolve("universe/players/p.json")));
+    }
+
+    @Test
     void unsafeFolderNamesAreRejected() {
         for (String bad : List.of("", " ", ".", "..", "a/b", "a\\b", "a:b", "what?", "CON", "nul.txt", "trailing.",
                 "trailing ", "tab\there")) {
