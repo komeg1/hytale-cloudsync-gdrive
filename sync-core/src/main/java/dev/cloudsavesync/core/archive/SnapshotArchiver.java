@@ -71,8 +71,23 @@ public final class SnapshotArchiver {
         return p.endsWith(".tmp");
     }
 
-    /** Zips {@code saveDir} into {@code outZip}, hashing the zip bytes as they are written. */
+    /** Zips {@code saveDir} into {@code outZip} at full speed (world closed). */
     public static Result createSnapshot(Path saveDir, Path outZip) throws IOException {
+        return createSnapshot(saveDir, outZip, 0);
+    }
+
+    /**
+     * Zips {@code saveDir} into {@code outZip}, hashing the zip bytes as they are written.
+     *
+     * <p>Built to stay out of the game's way when it runs during play: region files (most of the
+     * save, already compressed by the game; deflating them saved only ~6%) are stored without
+     * compression, so the zip costs almost no CPU; reads go through one reused 64 KiB buffer, so no
+     * garbage piles up; and {@code maxBytesPerSecond} caps disk reads so the game's own chunk
+     * loading and saving keep priority.
+     *
+     * @param maxBytesPerSecond read limit, or 0 for unlimited
+     */
+    public static Result createSnapshot(Path saveDir, Path outZip, long maxBytesPerSecond) throws IOException {
         Path root = saveDir.toAbsolutePath().normalize();
         if (!Files.isDirectory(root.resolve(UNIVERSE))) {
             throw new IOException("no universe/ folder in " + root + "; is this a Hytale save?");
@@ -103,13 +118,21 @@ public final class SnapshotArchiver {
         try (OutputStream raw = Files.newOutputStream(outZip);
              OutputStream hashed = new DigestOutputStream(new DigestOutputStream(raw, md5), sha256);
              ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(hashed, 1 << 16))) {
-            // Region files are already compressed; fast deflate keeps the zip step short.
-            zip.setLevel(Deflater.BEST_SPEED);
+            byte[] buffer = new byte[1 << 16];
+            Throttle throttle = new Throttle(maxBytesPerSecond);
             for (Path file : files) {
-                ZipEntry entry = new ZipEntry(rel(root, file));
+                String name = rel(root, file);
+                ZipEntry entry = new ZipEntry(name);
                 entry.setLastModifiedTime(Files.getLastModifiedTime(file));
+                zip.setLevel(isPrecompressed(name) ? Deflater.NO_COMPRESSION : Deflater.BEST_SPEED);
                 zip.putNextEntry(entry);
-                Files.copy(file, zip);
+                try (InputStream in = Files.newInputStream(file)) {
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        zip.write(buffer, 0, n);
+                        throttle.consumed(n);
+                    }
+                }
                 zip.closeEntry();
             }
         } catch (IOException | RuntimeException e) {
@@ -119,6 +142,39 @@ public final class SnapshotArchiver {
         HexFormat hex = HexFormat.of();
         return new Result(outZip, Files.size(outZip), hex.formatHex(md5.digest()), hex.formatHex(sha256.digest()),
                 files.size());
+    }
+
+    /** Hytale region files are compressed by the game already. */
+    static boolean isPrecompressed(String relativePath) {
+        return relativePath.endsWith(".region.bin");
+    }
+
+    /** Sleeps as needed to keep the average read rate under a limit. */
+    private static final class Throttle {
+        private final long bytesPerSecond;
+        private final long start = System.nanoTime();
+        private long total;
+
+        Throttle(long bytesPerSecond) {
+            this.bytesPerSecond = bytesPerSecond;
+        }
+
+        void consumed(int bytes) throws IOException {
+            if (bytesPerSecond <= 0) {
+                return;
+            }
+            total += bytes;
+            long dueNanos = total * 1_000_000_000L / bytesPerSecond;
+            long aheadMillis = (dueNanos - (System.nanoTime() - start)) / 1_000_000;
+            if (aheadMillis > 5) {
+                try {
+                    Thread.sleep(aheadMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.io.InterruptedIOException("snapshot interrupted");
+                }
+            }
+        }
     }
 
     /**

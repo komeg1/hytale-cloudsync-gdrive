@@ -13,6 +13,7 @@ import dev.cloudsavesync.core.SyncEngine;
 import dev.cloudsavesync.core.local.HelperStatus;
 import dev.cloudsavesync.core.local.LocalState;
 import dev.cloudsavesync.core.local.LocalSyncLock;
+import dev.cloudsavesync.core.local.SyncSettings;
 import dev.cloudsavesync.core.local.UserDataLocator;
 import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.model.SessionLock;
@@ -60,13 +61,12 @@ public class CloudSyncPlugin extends JavaPlugin {
     static final Duration RESTORE_BUDGET = Duration.ofSeconds(60);
     /** How long a re-opened world waits for the previous session's helper to finish reading the save. */
     static final Duration HELPER_READ_WAIT = Duration.ofSeconds(90);
-    static final Duration PERIODIC_INTERVAL = Duration.ofMinutes(7);
     static final Duration FIRST_PERIODIC = Duration.ofMinutes(2);
     static final Duration HEARTBEAT = Duration.ofSeconds(60);
     /** Periodic uploads wait until no chunk was saved for this long. */
     static final long QUIET_MILLIS = 2_000;
     /** An upload that is due never waits longer than this for a quiet moment. */
-    static final Duration MAX_QUIET_WAIT = Duration.ofSeconds(90);
+    static final Duration MAX_QUIET_WAIT = Duration.ofSeconds(15);
     /** How often a due upload looks for a quiet moment. */
     static final long PERIODIC_TICK_SECONDS = 5;
 
@@ -87,7 +87,7 @@ public class CloudSyncPlugin extends JavaPlugin {
     private final String sessionId = UUID.randomUUID().toString();
 
     /** All cloud work, one task at a time. */
-    final ExecutorService io = Executors.newSingleThreadExecutor(daemon("cloudsync-io"));
+    final ExecutorService io = Executors.newSingleThreadExecutor(lowPriority("cloudsync-io"));
     /** Sign-in waits (browser callback, code polling), so they never block uploads. */
     final ExecutorService authPool = Executors.newCachedThreadPool(daemon("cloudsync-auth"));
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(daemon("cloudsync-timer"));
@@ -101,6 +101,7 @@ public class CloudSyncPlugin extends JavaPlugin {
     private volatile RemoteFile sessionLockFile;
     private volatile SessionLock sessionLock;
     private volatile Instant lastUploadAttempt = Instant.EPOCH;
+    volatile SyncSettings settings = SyncSettings.DEFAULTS;
     private volatile boolean announcedFirstBackup;
     private volatile StorageException.Kind lastReportedError;
 
@@ -139,6 +140,10 @@ public class CloudSyncPlugin extends JavaPlugin {
             }
             services = s.get();
             engine = services.engine(paths, log);
+            settings = SyncSettings.load(paths.stateRoot());
+            log.info("uploads during play: " + (settings.autoUpload()
+                    ? "every " + settings.autoUploadMinutes() + " min" : "off") + " ("
+                    + SyncSettings.file(paths.stateRoot()) + ")");
 
             reportPreviousHelper();
             waitForHelperToFinishReading();
@@ -167,7 +172,7 @@ public class CloudSyncPlugin extends JavaPlugin {
         if (mode == Mode.DISABLED) {
             return;
         }
-        lastUploadAttempt = Instant.now().minus(PERIODIC_INTERVAL).plus(FIRST_PERIODIC);
+        lastUploadAttempt = Instant.now().minus(interval()).plus(FIRST_PERIODIC);
         timer.scheduleWithFixedDelay(() -> io.execute(this::periodicUpload), PERIODIC_TICK_SECONDS,
                 PERIODIC_TICK_SECONDS, TimeUnit.SECONDS);
         timer.scheduleWithFixedDelay(() -> io.execute(this::heartbeat), HEARTBEAT.toSeconds(), HEARTBEAT.toSeconds(),
@@ -459,15 +464,15 @@ public class CloudSyncPlugin extends JavaPlugin {
     }
 
     private void periodicUpload() {
-        if (mode != Mode.NORMAL || !services.auth().isSignedIn()) {
+        if (mode != Mode.NORMAL || !settings.autoUpload() || !services.auth().isSignedIn()) {
             return;
         }
         Duration sinceLast = Duration.between(lastUploadAttempt, Instant.now());
-        if (sinceLast.compareTo(PERIODIC_INTERVAL) < 0) {
+        if (sinceLast.compareTo(interval()) < 0) {
             return;
         }
         long quietFor = saveActivity.millisSinceLastSave();
-        boolean overdue = sinceLast.compareTo(PERIODIC_INTERVAL.plus(MAX_QUIET_WAIT)) >= 0;
+        boolean overdue = sinceLast.compareTo(interval().plus(MAX_QUIET_WAIT)) >= 0;
         if (quietFor < QUIET_MILLIS && !overdue) {
             // While exploring, new chunks are saved almost constantly: retry at the next tick.
             return;
@@ -561,7 +566,7 @@ public class CloudSyncPlugin extends JavaPlugin {
                     act(new StartPlan(StartPlan.Action.CONFLICT, plan.snapshot(), plan.cloudRevision(), plan.why()), 0);
                 } else {
                     messages.info("This world will now be backed up to your Google Drive while you play.");
-                    lastUploadAttempt = Instant.now().minus(PERIODIC_INTERVAL).plus(Duration.ofSeconds(30));
+                    lastUploadAttempt = Instant.now().minus(interval()).plus(Duration.ofSeconds(30));
                 }
                 warnAboutOtherDevice(cloud);
                 acquireSessionLock(cloud.lockFile());
@@ -592,6 +597,31 @@ public class CloudSyncPlugin extends JavaPlugin {
             c = c.getCause();
         }
         return c.getMessage() == null ? c.getClass().getSimpleName() : c.getMessage();
+    }
+
+    Duration interval() {
+        return Duration.ofMinutes(settings.autoUploadMinutes());
+    }
+
+    /** Changes and saves the settings; a new interval counts from now. */
+    void updateSettings(SyncSettings next) throws IOException {
+        next.save(paths.stateRoot());
+        settings = next;
+        lastUploadAttempt = Instant.now();
+        log.info("uploads during play: " + (next.autoUpload() ? "every " + next.autoUploadMinutes() + " min" : "off"));
+    }
+
+    /**
+     * The sync thread runs at minimum priority so the game's threads always get the CPU first
+     * (the OS honours this on Windows; on Linux it's a hint).
+     */
+    private static java.util.concurrent.ThreadFactory lowPriority(String name) {
+        return r -> {
+            Thread t = new Thread(r, name);
+            t.setDaemon(true);
+            t.setPriority(Thread.MIN_PRIORITY);
+            return t;
+        };
     }
 
     private static java.util.concurrent.ThreadFactory daemon(String name) {

@@ -184,34 +184,73 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
 
         long offset = 0;
         int failures = 0;
-        try (FileChannel file = FileChannel.open(content, StandardOpenOption.READ)) {
-            while (true) {
-                int len = (int) Math.min(CHUNK, total - offset);
-                byte[] chunk = new byte[len];
-                file.read(ByteBuffer.wrap(chunk), offset);
-                String range = len == 0 ? "bytes */" + total : "bytes " + offset + "-" + (offset + len - 1) + "/" + total;
-                HttpResponse<String> r;
-                try {
-                    // The session URL carries its own authorization, but sending the token is harmless.
-                    r = call("uploading", t -> authed(session, t).timeout(Http.LONG)
-                            .header("Content-Range", range)
-                            .PUT(HttpRequest.BodyPublishers.ofByteArray(chunk)).build(),
-                            HttpResponse.BodyHandlers.ofString(), false);
-                } catch (StorageException e) {
-                    if (e.kind() != StorageException.Kind.OFFLINE || ++failures >= MAX_ATTEMPTS) {
-                        throw e;
-                    }
-                    offset = queryUploadedBytes(session, total);
-                    continue;
+        while (true) {
+            int len = (int) Math.min(CHUNK, total - offset);
+            long chunkStart = offset;
+            String range = len == 0 ? "bytes */" + total : "bytes " + offset + "-" + (offset + len - 1) + "/" + total;
+            // Streamed from the file through the client's small internal buffers: no 8 MB array
+            // per chunk, so uploading during play doesn't trigger garbage-collection pauses.
+            HttpRequest.BodyPublisher body = len == 0 ? HttpRequest.BodyPublishers.noBody()
+                    : HttpRequest.BodyPublishers.fromPublisher(
+                    HttpRequest.BodyPublishers.ofInputStream(() -> slice(content, chunkStart, len)), len);
+            HttpResponse<String> r;
+            try {
+                // The session URL carries its own authorization, but sending the token is harmless.
+                r = call("uploading", t -> authed(session, t).timeout(Http.LONG)
+                        .header("Content-Range", range)
+                        .PUT(body).build(),
+                        HttpResponse.BodyHandlers.ofString(), false);
+            } catch (StorageException e) {
+                if (e.kind() != StorageException.Kind.OFFLINE || ++failures >= MAX_ATTEMPTS) {
+                    throw e;
                 }
-                if (r.statusCode() == 308) {
-                    offset = rangeEnd(r).map(end -> end + 1).orElse(0L);
-                    progress.onProgress(offset, total);
-                    continue;
-                }
-                progress.onProgress(total, total);
-                return toRemoteFile(Json.parseObject(r.body()));
+                offset = queryUploadedBytes(session, total);
+                continue;
             }
+            if (r.statusCode() == 308) {
+                offset = rangeEnd(r).map(end -> end + 1).orElse(0L);
+                progress.onProgress(offset, total);
+                continue;
+            }
+            progress.onProgress(total, total);
+            return toRemoteFile(Json.parseObject(r.body()));
+        }
+    }
+
+    /** {@code length} bytes of {@code file} starting at {@code offset}. */
+    static InputStream slice(Path file, long offset, long length) {
+        try {
+            FileChannel ch = FileChannel.open(file, StandardOpenOption.READ).position(offset);
+            InputStream in = java.nio.channels.Channels.newInputStream(ch);
+            return new java.io.FilterInputStream(in) {
+                private long left = length;
+
+                @Override
+                public int read() throws IOException {
+                    if (left <= 0) {
+                        return -1;
+                    }
+                    int b = super.read();
+                    if (b >= 0) {
+                        left--;
+                    }
+                    return b;
+                }
+
+                @Override
+                public int read(byte[] b, int off, int len) throws IOException {
+                    if (left <= 0) {
+                        return -1;
+                    }
+                    int n = super.read(b, off, (int) Math.min(len, left));
+                    if (n > 0) {
+                        left -= n;
+                    }
+                    return n;
+                }
+            };
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
         }
     }
 
