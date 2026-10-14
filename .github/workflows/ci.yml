@@ -1,10 +1,17 @@
 name: Tests
 
+# Pull requests are tested as merged into master; master is tested again after each merge.
+# Pushes to dev are covered by the pull request run, so they don't trigger a second one.
 on:
   pull_request:
     branches: [ "master" ]
   push:
-    branches: [ "master", "dev" ]
+    branches: [ "master" ]
+
+# A newer commit on the same branch or pull request cancels the older, still-running tests.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -30,10 +37,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
-      # The plugin module needs libs/HytaleServer.jar, which can't be in the repository,
-      # so CI tests the modules that hold the sync logic.
-      - name: Run tests
-        run: ./gradlew :sync-core:test :gdrive:test --console=plain
+      # Compiles every module (the plugin against the Hytale server API from maven.hytale.com)
+      # and runs all tests. No Google credentials here: the jar is built without sign-in support.
+      - name: Build and test
+        run: ./gradlew build --console=plain
 
       - name: Upload test reports
         if: failure()

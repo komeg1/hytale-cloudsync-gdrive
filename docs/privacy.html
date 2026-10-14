@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy – Cloud Save Sync</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <p><a href="./">← Cloud Save Sync</a></p>
+  <h1>Privacy Policy</h1>
+  <p class="muted">Effective 14 October 2026</p>
+
+  <p>Cloud Save Sync is a free, open-source mod for Hytale that copies your singleplayer worlds to your own
+    Google Drive so you can continue playing them on your other devices. This page explains what data the
+    mod uses and what it does with it.</p>
+
+  <h2>The short version</h2>
+  <ul>
+    <li>Your worlds go to <strong>your</strong> Google Drive and nowhere else.</li>
+    <li>The mod can only see files it created itself. It cannot see, read or change anything else in your Drive.</li>
+    <li>There is no server run by the developer. Nothing is sent to the developer or to anyone other than Google.</li>
+    <li>No analytics, no tracking, no advertising.</li>
+  </ul>
+
+  <h2>What the mod accesses in your Google account</h2>
+  <p>When you sign in, the mod asks Google for one permission: <code>https://www.googleapis.com/auth/drive.file</code>.
+    With it, the mod can create files in your Google Drive and read, update and delete <em>only the files it created</em>.
+    It does not request access to your name, email address, contacts or any other Google data.</p>
+  <p>The files it creates are in a folder called <strong>Hytale Cloud Saves</strong> in your Drive:</p>
+  <ul>
+    <li>zip copies of the worlds you choose to sync (world, player and settings files from your Hytale save folder);</li>
+    <li>a small file per world listing its copies, including the device name and time of each upload;</li>
+    <li>a small file per world noting which device currently has the world open.</li>
+  </ul>
+
+  <h2>What is stored on your device</h2>
+  <p>In Hytale's user data folder (<code>UserData/CloudSaveSync</code>), the mod keeps:</p>
+  <ul>
+    <li>the Google sign-in token that lets it upload without asking you to sign in every time;</li>
+    <li>a random device identifier and your computer's name, so your worlds' history shows which device saved them;</li>
+    <li>sync status, settings, logs and local backups of worlds it replaced with a cloud version.</li>
+  </ul>
+  <p>This data stays on your device. The device name also appears in the files in your own Drive, as described above.</p>
+
+  <h2>Who the data is shared with</h2>
+  <p>The mod only talks to Google (sign-in and Google Drive). The developer receives nothing: there is no server,
+    no telemetry and no crash reporting run by the developer. Your data is not sold or shared with anyone.</p>
+  <p>Cloud Save Sync's use and transfer of information received from Google APIs adheres to the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+    including the Limited Use requirements.</p>
+
+  <h2>Removing your data</h2>
+  <ul>
+    <li>Type <code>/cloudsync logout</code> in Hytale to sign out. This deletes the sign-in token from your device and
+      asks Google to revoke it.</li>
+    <li>You can also remove the mod's access at
+      <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+    <li>Delete the <strong>Hytale Cloud Saves</strong> folder in Google Drive to remove your cloud copies.</li>
+    <li>Delete the <code>UserData/CloudSaveSync</code> folder to remove everything the mod stored on your device.</li>
+  </ul>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the new version will be published on this page with a new effective date.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or concerns: open an issue at
+    <a href="https://github.com/komeg1/hytale-cloudsync-gdrive/issues">github.com/komeg1/hytale-cloudsync-gdrive/issues</a>.</p>
+</main>
+</body>
+</html>
