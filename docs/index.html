@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cloud Save Sync</title>
+  <meta name="description" content="A Hytale mod that syncs your singleplayer worlds between your devices through your own Google Drive.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Cloud Save Sync</h1>
+  <p class="lead">A Hytale mod that syncs your singleplayer worlds between your PC, Mac and Steam Deck through your own
+    Google Drive.</p>
+
+  <h2>How it works</h2>
+  <ul>
+    <li>Sign in with Google once per device. The mod can only see the files it creates in your Drive.</li>
+    <li>Choose which worlds to sync. They are uploaded while you play and when you leave the world.</li>
+    <li>When you open a synced world, the newest version from your other devices is loaded first.</li>
+    <li>If two devices changed the same world, nothing is overwritten: you choose which version to keep.</li>
+    <li>Your worlds stay in your own Google Drive. There is no server in between.</li>
+  </ul>
+
+  <h2>Getting started</h2>
+  <ol>
+    <li>Put the mod's <code>.jar</code> file in Hytale's <code>UserData/Mods</code> folder.</li>
+    <li>Open a world and type <code>/cloudsync login</code>, then follow the instructions in chat.</li>
+    <li>Type <code>/cloudsync enable</code> to start syncing that world.</li>
+    <li>On another device, type <code>/cloudsync list</code> and <code>/cloudsync download &lt;number&gt;</code> to get
+      your worlds there.</li>
+  </ol>
+
+  <h2>Commands</h2>
+  <table>
+    <tr><td><code>/cloudsync login</code></td><td>Sign in to Google Drive</td></tr>
+    <tr><td><code>/cloudsync enable</code> / <code>disable</code></td><td>Start or stop syncing this world</td></tr>
+    <tr><td><code>/cloudsync list</code></td><td>Show your worlds in Google Drive</td></tr>
+    <tr><td><code>/cloudsync download 1,3</code></td><td>Download worlds to this device</td></tr>
+    <tr><td><code>/cloudsync upload</code></td><td>Back up this world now</td></tr>
+    <tr><td><code>/cloudsync status</code></td><td>Show the sync status</td></tr>
+    <tr><td><code>/cloudsync auto on|off|&lt;minutes&gt;</code></td><td>Uploads while playing</td></tr>
+    <tr><td><code>/cloudsync keep &lt;1-20&gt;</code></td><td>How many copies of this world to keep</td></tr>
+    <tr><td><code>/cloudsync usecloud</code> / <code>keeplocal</code></td><td>Choose a version after a conflict</td></tr>
+    <tr><td><code>/cloudsync logout</code></td><td>Sign out on this device</td></tr>
+  </table>
+
+  <h2>Links</h2>
+  <ul>
+    <li><a href="privacy.html">Privacy policy</a></li>
+    <li><a href="https://github.com/komeg1/hytale-cloudsync-gdrive">Source code</a></li>
+    <li><a href="https://github.com/komeg1/hytale-cloudsync-gdrive/issues">Report a problem</a></li>
+  </ul>
+
+  <p class="muted">Cloud Save Sync is a fan-made mod. It is not affiliated with Hypixel Studios or Google.</p>
+</main>
+</body>
+</html>
