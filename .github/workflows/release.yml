@@ -14,14 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      stage: ${{ steps.version.outputs.stage }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      # 0.x versions are alpha releases (a GitHub pre-release, an Alpha file on CurseForge);
+      # from 1.0.0 on they are normal releases.
       - name: Read version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == 0.* ]]; then echo "stage=alpha" >> "$GITHUB_OUTPUT"; else echo "stage=release" >> "$GITHUB_OUTPUT"; fi
 
       - name: Check the tag is on master
         run: |
@@ -72,10 +78,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ "${{ steps.version.outputs.stage }}" = "alpha" ]; then
+            flags=(--prerelease)
+            title="Cloud Save Sync ${{ steps.version.outputs.version }} (alpha)"
+          else
+            flags=()
+            title="Cloud Save Sync ${{ steps.version.outputs.version }}"
+          fi
           gh release create "$GITHUB_REF_NAME" \
             "plugin/build/libs/CloudSaveSync-${{ steps.version.outputs.version }}.jar" \
-            --title "Cloud Save Sync ${{ steps.version.outputs.version }}" \
-            --generate-notes
+            --title "$title" \
+            --generate-notes "${flags[@]}"
 
       - name: Keep the jar for the CurseForge job
         uses: actions/upload-artifact@v4
@@ -103,11 +116,12 @@ jobs:
           # curl -H "X-Api-Token: <token>" https://hytale.curseforge.com/api/game/versions
           GAME_VERSIONS: ${{ vars.CURSEFORGE_GAME_VERSIONS }}
           VERSION: ${{ needs.github-release.outputs.version }}
+          STAGE: ${{ needs.github-release.outputs.stage }}
         run: |
           versions=$(echo "${GAME_VERSIONS:-}" | jq -R 'split(",") | map(select(length > 0) | tonumber)')
           metadata=$(jq -n --arg log "Release $VERSION. See https://github.com/${{ github.repository }}/releases/tag/v$VERSION" \
-            --argjson versions "$versions" \
-            '{changelog: $log, changelogType: "markdown", releaseType: "release", gameVersions: $versions}')
+            --argjson versions "$versions" --arg stage "$STAGE" \
+            '{changelog: $log, changelogType: "markdown", releaseType: $stage, gameVersions: $versions}')
           curl --fail-with-body -sS \
             -H "X-Api-Token: $TOKEN" \
             -F "metadata=$metadata" \
