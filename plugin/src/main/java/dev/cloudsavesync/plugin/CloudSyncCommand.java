@@ -151,8 +151,8 @@ final class CloudSyncCommand extends AbstractCommandCollection {
 
     private void signInFinished(Throwable err, PlayerMessages out) {
         if (err == null) {
-            out.info("Signed in to Google Drive. Your worlds go in the \"Hytale Cloud Saves\" folder;"
-                    + " the mod can't see anything else in your Drive.");
+            out.info("Signed in. Synced worlds go in the \"Hytale Cloud Saves\" folder in your Google Drive;"
+                    + " the mod can't see anything else there.");
             plugin.afterSignIn();
         } else if (!(err instanceof java.util.concurrent.CancellationException)) {
             out.error("Sign-in didn't complete: " + CloudSyncPlugin.rootMessage(err));
@@ -178,7 +178,9 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         try {
             LocalState s = engine.localState();
             reply(ctx, "World '" + plugin.paths.worldKey() + "' on " + engine.device().deviceName() + ". "
-                    + (plugin.services.auth().isSignedIn() ? "Signed in to Google Drive." : "Not signed in."));
+                    + (!plugin.services.auth().isSignedIn() ? "Not signed in."
+                    : "Signed in to Google Drive" + plugin.services.auth().knownAccount()
+                    .map(a -> a.email() == null ? "" : " as " + a.email()).orElse("") + "."));
             reply(ctx, s.lastSyncAt() == null ? "Never synced from this device."
                     : "Last synced " + PlayerMessages.ago(s.lastSyncAt(), Instant.now()) + " (cloud revision "
                     + s.lastSyncedRevision() + ").");

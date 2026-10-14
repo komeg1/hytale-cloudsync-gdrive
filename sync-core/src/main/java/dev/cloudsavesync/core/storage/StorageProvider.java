@@ -15,6 +15,9 @@ import java.util.Map;
  */
 public interface StorageProvider {
 
+    /** Which account this provider is signed in to. Worlds are enabled per account. */
+    AccountInfo account() throws IOException;
+
     /** Every file in the app space. */
     List<RemoteFile> list() throws IOException;
 

@@ -20,6 +20,7 @@ import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.model.SessionLock;
 import dev.cloudsavesync.core.model.SnapshotInfo;
 import dev.cloudsavesync.core.model.WorldManifest;
+import dev.cloudsavesync.core.storage.AccountInfo;
 import dev.cloudsavesync.core.storage.ProgressListener;
 import dev.cloudsavesync.core.storage.RemoteFile;
 import dev.cloudsavesync.core.storage.StorageException;
@@ -153,13 +154,17 @@ public class CloudSyncPlugin extends JavaPlugin {
             waitForHelperToFinishReading();
 
             if (services.auth().isSignedIn()) {
-                if (engine.isSyncEnabled()) {
+                String account = accountIdWithin(CLOUD_CHECK_BUDGET);
+                if (account != null && engine.isSyncEnabled(account)) {
                     mode = Mode.NORMAL;
                     loadTimeSync();
                 } else {
                     mode = Mode.NOT_SYNCED;
-                    log.info("world '" + paths.worldKey() + "' is not synced on this device");
-                    messages.info("This world isn't synced. Type /cloudsync enable to back it up to your Google Drive.");
+                    log.info("world '" + paths.worldKey() + "' is not synced with the signed-in account"
+                            + (account == null ? " (account unknown: Google unreachable)" : ""));
+                    messages.info(account == null
+                            ? "Couldn't reach Google Drive to check your account, so this world won't sync this session."
+                            : "This world isn't synced. Type /cloudsync enable to back it up to your Google Drive.");
                 }
                 io.execute(this::announceCloudWorlds);
             } else {
@@ -569,7 +574,10 @@ public class CloudSyncPlugin extends JavaPlugin {
         }
         io.execute(() -> {
             try {
-                if (engine.isSyncEnabled()) {
+                AccountInfo account = services.storage().account();
+                messages.info("Signed in as " + (account.email() == null ? "your Google account" : account.email()) + ".");
+                // Signing in never starts syncing a world: only worlds enabled for this account sync.
+                if (engine.isSyncEnabled(account.id())) {
                     mode = Mode.NORMAL;
                     startSyncingRunningWorld("after sign-in");
                 } else {
@@ -606,11 +614,12 @@ public class CloudSyncPlugin extends JavaPlugin {
     /** {@code /cloudsync enable}: start syncing this world. Runs on the io thread. */
     void enableSync() {
         try {
-            if (mode != Mode.NOT_SYNCED && engine.isSyncEnabled()) {
+            String account = services.storage().account().id();
+            if (mode != Mode.NOT_SYNCED && engine.isSyncEnabled(account)) {
                 messages.info("This world is already synced. /cloudsync status shows the details.");
                 return;
             }
-            engine.setSyncEnabled(true);
+            engine.setSyncEnabled(true, account);
             mode = Mode.NORMAL;
             startSyncingRunningWorld("enable");
         } catch (StorageException e) {
@@ -628,7 +637,7 @@ public class CloudSyncPlugin extends JavaPlugin {
                 messages.info("This world isn't synced.");
                 return;
             }
-            engine.setSyncEnabled(false);
+            engine.setSyncEnabled(false, services.auth().knownAccount().map(AccountInfo::id).orElse(null));
             mode = Mode.NOT_SYNCED;
             sessionLock = null;
             try {
@@ -641,6 +650,26 @@ public class CloudSyncPlugin extends JavaPlugin {
                     + " stays there. Type /cloudsync enable to sync it again.");
         } catch (IOException e) {
             messages.error("Couldn't turn off sync for this world: " + e.getMessage());
+        }
+    }
+
+    /**
+     * The signed-in account's id, waiting at most {@code budget} (it is remembered after the first
+     * time, so this is only slow once per sign-in). Null if Google can't be reached.
+     */
+    private String accountIdWithin(Duration budget) {
+        Optional<AccountInfo> known = services.auth().knownAccount();
+        if (known.isPresent()) {
+            return known.get().id();
+        }
+        try {
+            return io.submit(() -> services.storage().account()).get(budget.toMillis(), TimeUnit.MILLISECONDS).id();
+        } catch (TimeoutException | ExecutionException e) {
+            log.info("could not read the signed-in account (" + rootMessage(e) + ")");
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
         }
     }
 

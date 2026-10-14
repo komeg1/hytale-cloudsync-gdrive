@@ -91,9 +91,12 @@ class GoogleAuthTest {
     void accountStoreRoundTrip() throws Exception {
         GoogleAccountStore store = GoogleAccountStore.in(tmp);
         GoogleAccountStore.Account a = new GoogleAccountStore.Account(GoogleClients.Kind.TV, "1//refresh",
-                Instant.parse("2026-10-14T12:00:00Z"));
+                Instant.parse("2026-10-14T12:00:00Z"), null, null);
         store.save(a);
         assertEquals(a, store.load().orElseThrow());
+        GoogleAccountStore.Account known = a.withIdentity("0123456789", "player@example.com");
+        store.save(known);
+        assertEquals(known, store.load().orElseThrow());
         store.delete();
         assertTrue(store.load().isEmpty());
     }

@@ -1,5 +1,6 @@
 package dev.cloudsavesync.core;
 
+import dev.cloudsavesync.core.storage.AccountInfo;
 import dev.cloudsavesync.core.storage.ProgressListener;
 import dev.cloudsavesync.core.storage.RemoteFile;
 import dev.cloudsavesync.core.storage.StorageException;
@@ -32,8 +33,15 @@ final class InMemoryStorageProvider implements StorageProvider {
     /** Runs inside the next large upload, to simulate things happening while it is in flight. */
     volatile Runnable duringNextUpload;
 
+    static final AccountInfo ACCOUNT = new AccountInfo("account-1", "player@example.com");
+
     InMemoryStorageProvider(Clock clock) {
         this.clock = clock;
+    }
+
+    @Override
+    public AccountInfo account() {
+        return ACCOUNT;
     }
 
     private void checkOnline() throws StorageException {

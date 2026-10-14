@@ -1,6 +1,7 @@
 package dev.cloudsavesync.gdrive;
 
 import dev.cloudsavesync.core.json.Json;
+import dev.cloudsavesync.core.storage.AccountInfo;
 import dev.cloudsavesync.core.storage.ProgressListener;
 import dev.cloudsavesync.core.storage.RemoteFile;
 import dev.cloudsavesync.core.storage.StorageException;
@@ -121,6 +122,32 @@ public final class GoogleDriveStorageProvider implements StorageProvider {
     }
 
     // ------------------------------------------------------------------ StorageProvider
+
+    /**
+     * The signed-in account, from Drive's about endpoint (allowed with drive.file), remembered next to
+     * the sign-in token. {@code permissionId} is Google's stable id for the account.
+     */
+    @Override
+    public AccountInfo account() throws IOException {
+        long generation = auth.accountGeneration();
+        java.util.Optional<AccountInfo> known = auth.knownAccount();
+        if (known.isPresent()) {
+            return known.get();
+        }
+        String url = API.replace("/files", "/about") + "?fields=" + Http.enc("user(permissionId,emailAddress)");
+        HttpResponse<String> r = call("reading your Google account",
+                t -> authed(url, t).timeout(Http.SHORT).GET().build(), HttpResponse.BodyHandlers.ofString());
+        Map<String, Object> user = Json.optObject(Json.parseObject(r.body()), "user");
+        String id = user == null ? null : Json.optString(user, "permissionId");
+        if (id == null) {
+            throw new StorageException(StorageException.Kind.OTHER, "Google didn't say which account is signed in");
+        }
+        AccountInfo info = new AccountInfo(id, Json.optString(user, "emailAddress"));
+        if (generation == auth.accountGeneration()) {
+            auth.rememberAccount(info);
+        }
+        return info;
+    }
 
     @Override
     public List<RemoteFile> list() throws IOException {

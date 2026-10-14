@@ -266,7 +266,7 @@ public final class GoogleAuth {
         if (refresh == null) {
             throw new StorageException(StorageException.Kind.OTHER, "Google didn't return a refresh token");
         }
-        store.save(new GoogleAccountStore.Account(kind, refresh, clock.instant()));
+        store.save(new GoogleAccountStore.Account(kind, refresh, clock.instant(), null, null));
         accountGeneration++;
         cacheAccessToken(tokens);
     }
@@ -307,6 +307,20 @@ public final class GoogleAuth {
             throw e;
         }
         return accessToken;
+    }
+
+    /** The signed-in account's identity as last seen, if known (works offline). */
+    public java.util.Optional<dev.cloudsavesync.core.storage.AccountInfo> knownAccount() {
+        return store.load().filter(a -> a.accountId() != null)
+                .map(a -> new dev.cloudsavesync.core.storage.AccountInfo(a.accountId(), a.email()));
+    }
+
+    /** Saves the signed-in account's identity next to its token. */
+    synchronized void rememberAccount(dev.cloudsavesync.core.storage.AccountInfo info) throws IOException {
+        java.util.Optional<GoogleAccountStore.Account> a = store.load();
+        if (a.isPresent()) {
+            store.save(a.get().withIdentity(info.id(), info.email()));
+        }
     }
 
     /** Increases on every sign-in and sign-out; see {@link GoogleDriveStorageProvider}. */
