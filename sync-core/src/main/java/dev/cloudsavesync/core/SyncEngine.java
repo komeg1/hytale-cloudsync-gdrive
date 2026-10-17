@@ -7,6 +7,7 @@ import dev.cloudsavesync.core.local.DeviceInfo;
 import dev.cloudsavesync.core.local.LocalState;
 import dev.cloudsavesync.core.local.SyncToggle;
 import dev.cloudsavesync.core.local.UnsyncedMarker;
+import dev.cloudsavesync.core.local.WorldIdentity;
 import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.model.CloudLayout;
 import dev.cloudsavesync.core.model.SessionLock;
@@ -230,6 +231,21 @@ public final class SyncEngine {
         AtomicFiles.deleteQuietly(zip);
         log.info("restored cloud revision " + revision + " (snapshot " + snapshotId + ")");
         return backup;
+    }
+
+    /**
+     * Drops sync state left by an earlier world with this name (see {@link WorldIdentity}). Call
+     * before reading any other state for the world.
+     *
+     * @return true if earlier state was discarded
+     */
+    public boolean claimWorld() throws IOException {
+        boolean stale = WorldIdentity.claim(paths);
+        if (stale) {
+            log.info("'" + paths.worldKey() + "' is a different world than the one synced under this name before;"
+                    + " its old sync state was discarded");
+        }
+        return stale;
     }
 
     /** Records that the local world now matches cloud {@code revision} of {@code accountId} (after an import). */
