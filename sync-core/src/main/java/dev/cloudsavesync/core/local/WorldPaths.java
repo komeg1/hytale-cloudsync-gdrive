@@ -32,6 +32,19 @@ public record WorldPaths(Path saveDir, Path stateRoot, String worldKey) {
         return saveDir.resolve("universe");
     }
 
+    /**
+     * This save's random id (see {@link WorldIdentity}). Inside the save, in the mod's own data
+     * folder, which snapshots never include.
+     */
+    public Path worldIdFile() {
+        return saveDir.resolve("mods").resolve("CloudSaveSync_CloudSaveSync").resolve("world-id");
+    }
+
+    /** The id of the save that this world's state belongs to. */
+    public Path recordedWorldIdFile() {
+        return worldStateDir().resolve("world-id");
+    }
+
     public Path worldStateDir() {
         return stateRoot.resolve("worlds").resolve(CloudLayout.encode(worldKey));
     }
