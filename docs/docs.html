@@ -33,6 +33,7 @@
         <a href="#cmd-upload">upload</a>
         <a href="#cmd-status">status</a>
         <a href="#cmd-auto">auto</a>
+        <a href="#cmd-notify">notify</a>
         <a href="#cmd-keep">keep</a>
         <a href="#cmd-conflict">usecloud / keeplocal</a>
         <p>Guides</p>
@@ -186,6 +187,17 @@
     <pre class="chat"><span class="you">/cloudsync auto 15</span>
 [Cloud Sync] Uploads while playing: every 15 minutes (all worlds on this device). Your world is also uploaded when you leave it.</pre>
 
+    <h3 id="cmd-notify">/cloudsync notify</h3>
+    <p>Desktop notifications for the upload after you leave a world: one when it starts, then one when it's saved
+      or if it failed. Applies to all worlds on this device. They use the system's own notifications (Windows,
+      macOS, and Linux desktops with a notification service). Steam Deck Gaming Mode doesn't show them.</p>
+    <table>
+      <tr><td><code>/cloudsync notify off</code></td><td>no desktop notifications</td></tr>
+      <tr><td><code>/cloudsync notify on</code></td><td>turn them back on (default)</td></tr>
+    </table>
+    <pre class="chat"><span class="you">/cloudsync notify off</span>
+[Cloud Sync] Desktop notifications: off (all worlds on this device). Uploads after leaving still happen.</pre>
+
     <h3 id="cmd-keep">/cloudsync keep</h3>
     <p>How many copies of this world Google Drive keeps. The setting is saved with the world, so all your
       devices follow it. Lowering it deletes the oldest copies right away.</p>
@@ -219,7 +231,8 @@
     <h3>When you leave</h3>
     <p>Hytale closes its world server a few seconds after you quit, which is too short for an upload. The mod
       starts a small helper process that waits for the game to close, then zips the world and uploads it. It
-      uses the game's own Java, so nothing extra is installed.</p>
+      uses the game's own Java, so nothing extra is installed. A desktop notification shows while it uploads
+      and when it's done (see <a href="#cmd-notify">notify</a>).</p>
     <h3>What is synced</h3>
     <p>The world's whole save folder, except logs, telemetry, Hytale's own backup folder and the mod's own
       data. When a newer version is applied, the world and player data are replaced; the world's settings

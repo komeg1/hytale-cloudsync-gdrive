@@ -6,6 +6,7 @@ import dev.cloudsavesync.core.local.AtomicFiles;
 import dev.cloudsavesync.core.local.HelperStatus;
 import dev.cloudsavesync.core.local.HelperStatus.Phase;
 import dev.cloudsavesync.core.local.LocalSyncLock;
+import dev.cloudsavesync.core.local.SyncSettings;
 import dev.cloudsavesync.core.local.WorldPaths;
 import dev.cloudsavesync.core.model.CloudLayout;
 import dev.cloudsavesync.core.storage.StorageException;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeoutException;
 /**
  * Detached process started by the plugin at server shutdown. Waits for the server process to exit,
  * then zips the world straight from the save folder and uploads it. No time limit, no staging copy.
+ * Shows desktop notifications when the upload starts and how it ended (see {@link DesktopNotifier}).
  *
  * <p>Holds the world's {@link LocalSyncLock} the whole time, so a quick re-open of the world waits
  * while the save is being read (the plugin checks {@link HelperStatus}). Logs a heartbeat to
@@ -83,10 +85,14 @@ public final class UploadHelper {
 
         Optional<LocalSyncLock> lock = Optional.empty();
         Path zipPath = null;
+        String world = "'" + paths.worldKey() + "'";
+        DesktopNotifier notifier = new DesktopNotifier(SyncSettings.load(paths.stateRoot()).notifications(),
+                CloudLayout.encode(paths.worldKey()), log);
         try {
             status[0] = update(paths, log, status[0], Phase.WAITING_FOR_SERVER, "waiting for the server to exit");
             if (!waitForExit(serverPid, log)) {
                 status[0] = update(paths, log, status[0], Phase.FAILED, "server did not exit in time; upload retried next session");
+                notifier.show("Couldn't upload " + world, "The game didn't close in time. It will be uploaded next time you play.");
                 return 1;
             }
 
@@ -118,6 +124,8 @@ public final class UploadHelper {
                     + (System.nanoTime() - t0) / 1_000_000 + " ms");
 
             status[0] = update(paths, log, status[0], Phase.UPLOADING, "uploading " + zip.sizeBytes() / (1024 * 1024) + " MB");
+            notifier.show("Uploading " + world + " to Google Drive",
+                    megabytes(zip.sizeBytes()) + ". Keep this device on until it's done.");
             uploaded[1] = zip.sizeBytes();
             SyncEngine.UploadResult r = engine.uploadArchive(id, zip, SyncEngine.REASON_EXIT, generation,
                     (done, total) -> uploaded[0] = done);
@@ -130,7 +138,15 @@ public final class UploadHelper {
                     ? "uploaded as cloud revision " + r.revision() + (r.markerCleared() ? "" : "; a new session started meanwhile")
                     : "kept as a conflict copy: the cloud has a newer version from another device";
             status[0] = update(paths, log, status[0], Phase.DONE, result);
-            log.info("done in " + Duration.between(started, Instant.now()).toSeconds() + " s: " + result);
+            long seconds = Duration.between(started, Instant.now()).toSeconds();
+            log.info("done in " + seconds + " s: " + result);
+            if (r.outcome() == SyncEngine.UploadOutcome.HEAD) {
+                notifier.show(world + " is saved to Google Drive",
+                        "Uploaded " + megabytes(zip.sizeBytes()) + " in " + seconds + " s.");
+            } else {
+                notifier.show(world + " was also changed on another device",
+                        "Both versions are kept in Google Drive. Open the world to choose which one to keep.");
+            }
             return 0;
         } catch (StorageException e) {
             String why = switch (e.kind()) {
@@ -141,16 +157,24 @@ public final class UploadHelper {
             };
             log.warn("upload failed: " + why, e);
             status[0] = update(paths, log, status[0], Phase.FAILED, why);
+            notifier.show("Couldn't upload " + world, switch (e.kind()) {
+                case OFFLINE -> "No internet connection. It will be uploaded next time you play.";
+                case AUTH_REQUIRED -> "You're signed out of Google. Sign in again with /cloudsync login.";
+                case QUOTA -> "Your Google Drive is full. Free up space, then play the world to retry.";
+                default -> e.getMessage() + ". It will be uploaded next time you play.";
+            });
             return 2;
         } catch (IOException | RuntimeException e) {
             log.warn("upload failed", e);
             status[0] = update(paths, log, status[0], Phase.FAILED, String.valueOf(e.getMessage()));
+            notifier.show("Couldn't upload " + world, e.getMessage() + ". It will be uploaded next time you play.");
             return 2;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             status[0] = update(paths, log, status[0], Phase.FAILED, "interrupted");
             return 2;
         } finally {
+            notifier.close();
             heartbeat.shutdownNow();
             if (zipPath != null) {
                 AtomicFiles.deleteQuietly(zipPath);
@@ -163,6 +187,10 @@ public final class UploadHelper {
                 }
             });
         }
+    }
+
+    private static String megabytes(long bytes) {
+        return Math.max(1, Math.round(bytes / (1024.0 * 1024))) + " MB";
     }
 
     private static boolean waitForExit(long serverPid, FileSyncLog log) throws InterruptedException {

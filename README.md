@@ -93,6 +93,7 @@ Only the world's owner can use these commands. Every command starts with `/cloud
 | [`upload`](#cloudsync-upload) | Back up this world now |
 | [`status`](#cloudsync-status) | Show the sync status of this world |
 | [`auto`](#cloudsync-auto) | Turn uploads while playing on or off, or set how often |
+| [`notify`](#cloudsync-notify) | Turn desktop notifications for the upload after leaving on or off |
 | [`keep`](#cloudsync-keep) | How many copies of this world Google Drive keeps |
 | [`usecloud`](#cloudsync-usecloud--keeplocal) | After a conflict: switch to the cloud version |
 | [`keeplocal`](#cloudsync-usecloud--keeplocal) | After a conflict: keep this device's version |
@@ -190,6 +191,17 @@ world always happens.
 /cloudsync auto on     turn it back on
 ```
 
+### `/cloudsync notify`
+
+Desktop notifications for the upload after you leave a world: one when it starts, then one when it's
+saved or if it failed. Applies to all worlds on this device. They use the system's own notifications
+(Windows, macOS, and Linux desktops with a notification service). Steam Deck Gaming Mode doesn't show them.
+
+```
+/cloudsync notify off  no desktop notifications
+/cloudsync notify on   turn them back on (default)
+```
+
 ### `/cloudsync keep`
 
 How many copies of this world Google Drive keeps. The setting is stored with the world, so all your
@@ -226,7 +238,8 @@ the large region files.
 
 **Leaving.** Hytale closes its world server a few seconds after you quit, which is too short for an
 upload. So the mod starts a small helper process (using the game's own Java) that waits for the game to
-close, then zips the world and uploads it. Nothing extra needs to be installed.
+close, then zips the world and uploads it. Nothing extra needs to be installed. A desktop notification
+shows while it uploads and when it's done (see [`notify`](#cloudsync-notify)).
 
 **Keeping track.** Every device remembers which cloud version its copy of the world matches. When you play,
 the world is marked as having unsynced changes; the mark is cleared only after an upload is confirmed by

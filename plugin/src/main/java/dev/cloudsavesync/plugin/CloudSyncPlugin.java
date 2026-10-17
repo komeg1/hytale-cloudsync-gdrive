@@ -894,7 +894,8 @@ public class CloudSyncPlugin extends JavaPlugin {
         next.save(paths.stateRoot());
         settings = next;
         lastUploadAttempt = Instant.now();
-        log.info("uploads during play: " + (next.autoUpload() ? "every " + next.autoUploadMinutes() + " min" : "off"));
+        log.info("uploads during play: " + (next.autoUpload() ? "every " + next.autoUploadMinutes() + " min" : "off")
+                + "; desktop notifications: " + (next.notifications() ? "on" : "off"));
     }
 
     /**
