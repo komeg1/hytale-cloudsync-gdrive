@@ -49,8 +49,9 @@ public final class SyncEngine {
     public static final int KEEP_PINNED = 5;
 
     /**
-     * Disk read limit for snapshots taken while the world is open (20 MiB/s: a ~90 MB world takes
-     * ~5 s), so the game's own chunk I/O keeps priority even on a slow drive.
+     * Disk read limit for automatic uploads during play (20 MiB/s: a ~90 MB world takes ~5 s), so
+     * the game's own chunk I/O keeps priority even on a slow drive. Uploads the player asks for and
+     * uploads after exit read at full speed: the network takes far longer than the zip anyway.
      */
     public static final long IN_SESSION_READ_BYTES_PER_SECOND = 20L * 1024 * 1024;
 
@@ -300,11 +301,12 @@ public final class SyncEngine {
         String id = newSnapshotId();
         Path zipPath = paths.tmpDir().resolve(CloudLayout.encode(paths.worldKey()) + "." + id + ".zip");
         try {
+            boolean limited = !worldClosed && REASON_PERIODIC.equals(reason);
             long t0 = System.nanoTime();
             SnapshotArchiver.Result zip = SnapshotArchiver.createSnapshot(paths.saveDir(), zipPath,
-                    worldClosed ? 0 : IN_SESSION_READ_BYTES_PER_SECOND);
+                    limited ? IN_SESSION_READ_BYTES_PER_SECOND : 0);
             log.info("zipped " + zip.fileCount() + " files, " + zip.sizeBytes() / (1024 * 1024) + " MB in "
-                    + (System.nanoTime() - t0) / 1_000_000 + " ms" + (worldClosed ? "" : " (read-limited, world open)"));
+                    + (System.nanoTime() - t0) / 1_000_000 + " ms" + (limited ? " (read-limited, automatic upload)" : ""));
             return uploadArchive(id, zip, reason, worldClosed ? generation : OptionalLong.empty(), progress);
         } finally {
             AtomicFiles.deleteQuietly(zipPath);
