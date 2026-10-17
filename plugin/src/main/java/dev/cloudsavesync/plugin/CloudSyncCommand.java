@@ -26,7 +26,7 @@ import java.time.Instant;
 import java.util.function.BiConsumer;
 
 /**
- * {@code /cloudsync <login|code|logout|status|enable|disable|list|download|upload|auto|keep|keeplocal|usecloud>}. Only the world's owner may use it:
+ * {@code /cloudsync <login|code|logout|status|enable|disable|list|download|upload|auto|notify|keep|keeplocal|usecloud>}. Only the world's owner may use it:
  * in a world opened to friends, guests can't sign it in to their own Drive or switch versions.
  */
 final class CloudSyncCommand extends AbstractCommandCollection {
@@ -57,6 +57,7 @@ final class CloudSyncCommand extends AbstractCommandCollection {
         sub("keeplocal", "Resolve a conflict by keeping this device's version", this::keepLocal);
         sub("usecloud", "Resolve a conflict by switching to the cloud version at next load", this::useCloud);
         addSubCommand(new AutoCommand());
+        addSubCommand(new NotifyCommand());
         addSubCommand(new DownloadCommand());
         addSubCommand(new KeepCommand());
     }
@@ -312,6 +313,43 @@ final class CloudSyncCommand extends AbstractCommandCollection {
                     + " device). Your world is also uploaded when you leave it."
                     : "Uploads while playing: off (all worlds on this device). Your world is still uploaded when"
                     + " you leave it.");
+        }
+    }
+
+    /** {@code /cloudsync notify <on|off>}: desktop notifications for the upload after leaving a world. */
+    private final class NotifyCommand extends CommandBase {
+        private final RequiredArg<String> value = withRequiredArg("setting", "on or off", ArgTypes.STRING);
+
+        NotifyCommand() {
+            super("notify", "Turn desktop notifications for the upload after you leave a world on/off");
+            requireNoPermission();
+        }
+
+        @Override
+        protected void executeSync(@Nonnull CommandContext ctx) {
+            if (ctx.isPlayer() && !isOwner(ctx)) {
+                reply(ctx, "Only the world's owner can manage cloud sync.");
+                return;
+            }
+            if (plugin.mode == Mode.DISABLED) {
+                reply(ctx, "Cloud sync is off: " + plugin.disabledReason + ".");
+                return;
+            }
+            String v = ctx.get(value).trim().toLowerCase(java.util.Locale.ROOT);
+            if (!v.equals("on") && !v.equals("off")) {
+                reply(ctx, "Use /cloudsync notify on or /cloudsync notify off.");
+                return;
+            }
+            try {
+                plugin.updateSettings(plugin.settings.withNotifications(v.equals("on")));
+            } catch (IOException e) {
+                reply(ctx, "Couldn't save the setting: " + e.getMessage());
+                return;
+            }
+            reply(ctx, v.equals("on")
+                    ? "Desktop notifications: on. After you leave a world, a notification shows while it uploads"
+                    + " and when it's done (all worlds on this device)."
+                    : "Desktop notifications: off (all worlds on this device). Uploads after leaving still happen.");
         }
     }
 
