@@ -134,7 +134,6 @@ public final class WorldImporter {
                 throw new IOException("a world named '" + w.worldKey() + "' appeared meanwhile; not overwriting it");
             }
             Files.move(staging, target);
-            engine.claimWorld();
             engine.recordSynced(w.manifest().revision(), head.id(), storage.account().id());
             log.info("imported cloud world '" + w.worldKey() + "' (revision " + w.manifest().revision() + ", "
                     + files + " files, from " + head.deviceName() + ")");

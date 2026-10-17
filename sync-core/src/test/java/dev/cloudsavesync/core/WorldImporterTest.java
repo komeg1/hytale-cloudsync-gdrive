@@ -140,68 +140,6 @@ class WorldImporterTest {
                 "a downloaded world syncs with the account it came from");
     }
 
-    private SyncEngine pcEngine(String world) throws IOException {
-        Path userData = tmp.resolve("pc/UserData");
-        Path save = Files.createDirectories(userData.resolve("Saves").resolve(world).resolve("universe")).getParent();
-        return new SyncEngine(cloud, WorldPaths.of(save, userData.resolve("CloudSaveSync")),
-                new DeviceInfo("pc-id", "Gaming PC"), clock, QUIET);
-    }
-
-    @Test
-    void aNewWorldWithAnOldWorldsNameDoesNotInheritItsSync() throws IOException {
-        SyncEngine old = pcEngine("Reused Name");
-        assertFalse(old.claimWorld(), "first time: nothing to discard");
-        old.setSyncEnabled(true, "alice");
-        old.recordSynced(4, "snap-4", "alice");
-        old.marker().mark("session");
-        assertFalse(old.claimWorld(), "the same world keeps its state");
-        assertTrue(old.isSyncEnabled("alice"));
-
-        dev.cloudsavesync.core.local.AtomicFiles.deleteRecursively(old.paths().saveDir());
-        SyncEngine fresh = pcEngine("Reused Name");
-
-        assertTrue(fresh.claimWorld());
-        assertFalse(fresh.isSyncEnabled("alice"), "a new world never starts syncing on its own");
-        assertEquals(null, fresh.localState().lastSyncedRevision(), "it must not be compared with the old world's cloud");
-        assertFalse(fresh.marker().isSet());
-        assertFalse(fresh.claimWorld(), "from now on it is the same world");
-    }
-
-    @Test
-    void worldsSyncedBeforeIdsExistedKeepTheirSync() throws IOException {
-        SyncEngine existing = pcEngine("Old World");
-        existing.setSyncEnabled(true, "alice");
-        Path toggle = existing.paths().worldStateDir().resolve("sync.json");
-        // Enabled after the save folder was created: the same world.
-        Files.setLastModifiedTime(toggle, java.nio.file.attribute.FileTime.from(Instant.now().plusSeconds(3600)));
-        assertFalse(existing.claimWorld());
-        assertTrue(existing.isSyncEnabled("alice"));
-
-        SyncEngine recreated = pcEngine("Recreated World");
-        recreated.setSyncEnabled(true, "alice");
-        // Enabled long before this save folder was created: a deleted world's leftovers.
-        Files.setLastModifiedTime(recreated.paths().worldStateDir().resolve("sync.json"),
-                java.nio.file.attribute.FileTime.from(Instant.parse("2001-01-01T00:00:00Z")));
-        assertTrue(recreated.claimWorld());
-        assertFalse(recreated.isSyncEnabled("alice"));
-    }
-
-    @Test
-    void theWorldIdIsNeverUploaded() throws IOException {
-        SyncEngine pc = pcEngine("Alpha");
-        pc.claimWorld();
-        assertTrue(Files.exists(pc.paths().worldIdFile()));
-        Path zip = tmp.resolve("alpha.zip");
-        dev.cloudsavesync.core.archive.SnapshotArchiver.createSnapshot(pc.paths().saveDir(), zip, 0);
-        try (var z = new java.util.zip.ZipFile(zip.toFile())) {
-            assertTrue(z.stream().noneMatch(e -> e.getName().endsWith("world-id")), "snapshots leave the id out");
-            assertTrue(z.stream().anyMatch(e -> e.getName().startsWith("universe/")));
-        }
-        Path imported = deck.importWorld(deck.cloudWorlds().getFirst(), ProgressListener.NONE, 0);
-        String deckId = Files.readString(WorldPaths.of(imported, deckSaves.getParent().resolve("CloudSaveSync")).worldIdFile());
-        assertFalse(deckId.equals(Files.readString(pc.paths().worldIdFile())), "each device's copy has its own id");
-    }
-
     @Test
     void enablingForAnotherAccountTreatsTheWorldAsNeverSynced() throws IOException {
         Path imported = deck.importWorld(deck.cloudWorlds().getFirst(), ProgressListener.NONE, 0);

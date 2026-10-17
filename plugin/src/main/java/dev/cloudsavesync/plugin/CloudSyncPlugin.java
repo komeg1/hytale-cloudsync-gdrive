@@ -146,7 +146,6 @@ public class CloudSyncPlugin extends JavaPlugin {
             }
             services = s.get();
             engine = services.engine(paths, log);
-            engine.claimWorld();
             settings = SyncSettings.load(paths.stateRoot());
             log.info("uploads during play: " + (settings.autoUpload()
                     ? "every " + settings.autoUploadMinutes() + " min" : "off") + " (" + SyncSettings.file(paths.stateRoot()) + ")");
