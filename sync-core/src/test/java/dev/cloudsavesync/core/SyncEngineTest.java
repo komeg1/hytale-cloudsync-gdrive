@@ -87,6 +87,28 @@ class SyncEngineTest {
         return e.uploadSave(SyncEngine.REASON_EXIT, true, ProgressListener.NONE);
     }
 
+    @Test
+    void uploadsRecordTheModsTheWorldUses() throws IOException {
+        Path mods = Files.createDirectories(pc.paths().modsDir());
+        try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(mods.resolve("BetterMap-1.3.9.jar")))) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("manifest.json"));
+            zip.write("{\"Group\":\"dev.ninesliced\",\"Name\":\"BetterMap\",\"Version\":\"1.3.9\"}".getBytes());
+        }
+        Files.writeString(mods.resolve(".installed.json"), "{\"mods\":{\"curseforge:1430352\":{\"fileId\":"
+                + "\"curseforge:9146451\",\"relativePath\":\"BetterMap-1.3.9.jar\"}}}");
+        Files.writeString(pc.paths().saveDir().resolve("config.json"),
+                "{\"Mods\":{\"dev.ninesliced:BetterMap\":{\"Enabled\":true}}}");
+
+        exitUpload(pc);
+
+        SnapshotInfo head = deck.fetch().manifest().head().orElseThrow();
+        assertEquals(1, head.mods().size(), "read back from the cloud manifest");
+        assertEquals("dev.ninesliced:BetterMap", head.mods().getFirst().id());
+        assertEquals("1.3.9", head.mods().getFirst().version());
+        assertEquals(9146451, head.mods().getFirst().curseForgeFileId());
+        assertTrue(head.mods().getFirst().downloadable());
+    }
+
     private void restoreHead(SyncEngine e) throws IOException {
         StartPlan plan = e.planStart(e.fetch());
         assertEquals(Action.RESTORE, plan.action(), plan.why());

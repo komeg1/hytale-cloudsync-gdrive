@@ -2,6 +2,7 @@ package dev.cloudsavesync.plugin;
 
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.Message;
+import com.hypixel.hytale.server.core.ShutdownReason;
 import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
@@ -17,6 +18,9 @@ import dev.cloudsavesync.core.local.LocalSyncLock;
 import dev.cloudsavesync.core.local.SyncSettings;
 import dev.cloudsavesync.core.local.UserDataLocator;
 import dev.cloudsavesync.core.local.WorldPaths;
+import dev.cloudsavesync.core.model.ModInfo;
+import dev.cloudsavesync.core.mods.ModInstaller;
+import dev.cloudsavesync.core.mods.ModScanner;
 import dev.cloudsavesync.core.model.SessionLock;
 import dev.cloudsavesync.core.model.SnapshotInfo;
 import dev.cloudsavesync.core.model.WorldManifest;
@@ -50,7 +54,8 @@ import java.util.concurrent.TimeoutException;
  * <ul>
  *   <li>{@link #setup()}: runs before the world loads and before any save file is open, so a newer
  *       cloud version can replace the local world here, within a time budget, with progress on the
- *       loading screen. Then the session is marked as having unsynced changes.</li>
+ *       loading screen. The mods that version was saved with are installed if missing; if they
+ *       can't be, the world doesn't open. Then the session is marked as having unsynced changes.</li>
  *   <li>While playing: a periodic upload every few minutes and a session-lock heartbeat, all on
  *       background threads.</li>
  *   <li>{@link #shutdown()}: marks unsynced and starts the detached upload helper, which uploads
@@ -109,6 +114,10 @@ public class CloudSyncPlugin extends JavaPlugin {
     private volatile Instant lastUploadAttempt = Instant.EPOCH;
     volatile SyncSettings settings = SyncSettings.DEFAULTS;
     private volatile boolean announcedFirstBackup;
+    /** The world is missing mods it needs: the server is stopping before the world opens. */
+    private volatile boolean blocked;
+    /** Mods installed or enabled in setup, loaded in start(). */
+    private WorldMods worldMods;
     private volatile StorageException.Kind lastReportedError;
 
     public CloudSyncPlugin(@Nonnull JavaPluginInit init) {
@@ -158,6 +167,9 @@ public class CloudSyncPlugin extends JavaPlugin {
                 if (account != null && engine.isSyncEnabled(account)) {
                     mode = Mode.NORMAL;
                     loadTimeSync();
+                    if (blocked) {
+                        return;
+                    }
                 } else {
                     mode = Mode.NOT_SYNCED;
                     log.info("world '" + paths.worldKey() + "' is not synced with the signed-in account"
@@ -185,6 +197,14 @@ public class CloudSyncPlugin extends JavaPlugin {
 
     @Override
     protected void start() {
+        if (worldMods != null) {
+            List<String> failed = worldMods.loadPrepared();
+            worldMods = null;
+            if (!failed.isEmpty()) {
+                block("Installed the mods this world uses (" + String.join(", ", failed)
+                        + "). Open the world again to play with them.");
+            }
+        }
         if (mode == Mode.DISABLED) {
             return;
         }
@@ -329,11 +349,103 @@ public class CloudSyncPlugin extends JavaPlugin {
             }
             log.info("load-time plan: " + plan.action() + " (" + plan.why() + ")");
             act(plan, deadline);
+            if (cloud != null && mode == Mode.NORMAL) {
+                checkWorldMods(plan, cloud);
+                if (blocked) {
+                    return;
+                }
+            }
             if (cloud != null) {
                 warnAboutOtherDevice(cloud);
                 RemoteFile existingLock = cloud.lockFile();
                 io.execute(() -> acquireSessionLock(existingLock));
             }
+        }
+    }
+
+    /**
+     * Installs, enables and loads the mods of the cloud version this world now matches. After a
+     * restore that's every mod the version was saved with; when this copy already matched the
+     * cloud, only mods still enabled for this world (one the player turned off stays off).
+     */
+    private void checkWorldMods(StartPlan plan, CloudState cloud) throws IOException {
+        boolean replaced = plan.action() == StartPlan.Action.RESTORE || plan.action() == StartPlan.Action.APPLY_PENDING;
+        boolean matched = plan.action() == StartPlan.Action.UP_TO_DATE || plan.action() == StartPlan.Action.LOCAL_AHEAD;
+        String snapshotId = engine.localState().lastSyncedSnapshotId();
+        if ((!replaced && !matched) || snapshotId == null || cloud.manifest() == null) {
+            return;
+        }
+        Optional<SnapshotInfo> snap = cloud.manifest().find(snapshotId);
+        if (snap.isEmpty() || snap.get().mods().isEmpty()) {
+            return;
+        }
+        WorldMods mods = new WorldMods(paths, log, this::loadingStatus);
+        WorldMods.Prepared r;
+        try {
+            r = mods.prepare(snap.get().mods(), replaced);
+        } catch (RuntimeException | LinkageError e) {
+            log.warn("could not check the world's mods", e);
+            return;
+        }
+        if (!r.unavailable().isEmpty()) {
+            List<String> missing = new java.util.ArrayList<>();
+            r.unavailable().forEach((mod, reason) -> missing.add(mod + " (" + reason + ")"));
+            block("This world uses mods that aren't on this device and couldn't be installed: "
+                    + String.join(", ", missing) + ". Install them, then open the world again.");
+            return;
+        }
+        if (!r.installed().isEmpty()) {
+            messages.info("Installed " + (r.installed().size() == 1 ? "a mod" : "mods") + " this world uses: "
+                    + String.join(", ", r.installed()) + ".");
+        }
+        if (!r.otherVersion().isEmpty()) {
+            messages.warn("This world was saved on " + snap.get().deviceName() + " with other versions of: "
+                    + String.join(", ", r.otherVersion()) + ". If something from them is missing, update them in the"
+                    + " mod browser.");
+        }
+        if (mods.hasModsToLoad()) {
+            worldMods = mods;
+        }
+    }
+
+    /** Stops the server before the world opens, so it is never played (and uploaded) without its mods. */
+    private void block(String why) {
+        blocked = true;
+        mode = Mode.DISABLED;
+        disabledReason = "the world is missing mods";
+        log.warn("not opening the world: " + why, null);
+        loadingStatus(why, 100);
+        try {
+            HytaleServer.get().shutdownServer(ShutdownReason.MISSING_REQUIRED_PLUGIN.withMessage(Message.raw(why)));
+        } catch (RuntimeException | LinkageError e) {
+            log.warn("could not stop the server", e);
+        }
+    }
+
+    /** Installs the mods a downloaded world uses, so it opens with them. Runs on the io thread. */
+    private void installModsFor(String worldKey, List<ModInfo> mods) {
+        java.util.Map<String, ModScanner.LocalMod> local = ModScanner.installed(paths.modsDir());
+        ModInstaller installer = new ModInstaller(java.time.Clock.systemUTC());
+        List<String> installed = new java.util.ArrayList<>();
+        List<String> missing = new java.util.ArrayList<>();
+        for (ModInfo mod : mods) {
+            if (!ModScanner.isSyncable(mod.id()) || local.containsKey(mod.id())) {
+                continue;
+            }
+            try {
+                installer.install(mod, paths.modsDir());
+                installed.add(mod.displayName());
+            } catch (IOException e) {
+                log.warn("could not install mod " + mod.id() + " for '" + worldKey + "'", e);
+                missing.add(mod.displayName());
+            }
+        }
+        if (!installed.isEmpty()) {
+            messages.info("Also installed the mods '" + worldKey + "' uses: " + String.join(", ", installed) + ".");
+        }
+        if (!missing.isEmpty()) {
+            messages.warn("'" + worldKey + "' uses mods that couldn't be installed: " + String.join(", ", missing)
+                    + ". It won't open until they are installed.");
         }
     }
 
@@ -809,6 +921,7 @@ public class CloudSyncPlugin extends JavaPlugin {
                 added++;
                 messages.info("Added '" + key + "' (saved " + PlayerMessages.ago(w.head().createdAt(), Instant.now())
                         + " on " + w.head().deviceName() + ").");
+                installModsFor(key, w.head().mods());
             } catch (IOException e) {
                 log.warn("could not download cloud world '" + key + "'", e);
                 messages.warn("Couldn't download '" + key + "' (" + e.getMessage() + "). Try again later.");

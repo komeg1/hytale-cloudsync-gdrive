@@ -67,6 +67,11 @@ public record WorldPaths(Path saveDir, Path stateRoot, String worldKey) {
         return stateRoot.resolve("backups").resolve(CloudLayout.encode(worldKey));
     }
 
+    /** The game's Mods folder, next to Saves. */
+    public Path modsDir() {
+        return stateRoot.getParent().resolve("Mods");
+    }
+
     public Path tmpDir() {
         return stateRoot.resolve("tmp");
     }

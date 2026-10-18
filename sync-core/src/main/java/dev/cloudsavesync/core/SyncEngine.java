@@ -8,7 +8,9 @@ import dev.cloudsavesync.core.local.LocalState;
 import dev.cloudsavesync.core.local.SyncToggle;
 import dev.cloudsavesync.core.local.UnsyncedMarker;
 import dev.cloudsavesync.core.local.WorldPaths;
+import dev.cloudsavesync.core.mods.ModScanner;
 import dev.cloudsavesync.core.model.CloudLayout;
+import dev.cloudsavesync.core.model.ModInfo;
 import dev.cloudsavesync.core.model.SessionLock;
 import dev.cloudsavesync.core.model.SnapshotInfo;
 import dev.cloudsavesync.core.model.WorldManifest;
@@ -314,13 +316,21 @@ public final class SyncEngine {
                     "upload was corrupted in transit (cloud copy didn't match); will retry");
         }
 
+        List<ModInfo> mods;
+        try {
+            mods = ModScanner.forWorld(paths);
+        } catch (IOException | RuntimeException e) {
+            log.warn("could not list the world's mods; this version is saved without its mod list", e);
+            mods = List.of();
+        }
+
         // Re-read right before committing so we see uploads other devices made meanwhile.
         CloudState cloud = fetch();
         WorldManifest manifest = cloud.manifest() != null ? cloud.manifest() : WorldManifest.empty(key);
         LocalState local = localState();
         SnapshotInfo snap = new SnapshotInfo(id, uploaded.id(), clock.instant(), device.deviceId(),
                 device.deviceName(), zip.sizeBytes(), zip.md5Hex(), zip.sha256Hex(), local.baseRevision(), false,
-                reason);
+                reason, mods);
 
         boolean becomesHead = local.baseRevision() >= manifest.revision()
                 && local.conflict() == null && local.useCloud() == null && local.pendingRestore() == null;
@@ -333,7 +343,7 @@ public final class SyncEngine {
             // Keep both: our version goes in as a pinned conflict copy, replacing our older one.
             snap = new SnapshotInfo(snap.id(), snap.fileId(), snap.createdAt(), snap.deviceId(), snap.deviceName(),
                     snap.sizeBytes(), snap.md5Hex(), snap.sha256Hex(), snap.baseRevision(), true,
-                    REASON_CONFLICT_COPY);
+                    REASON_CONFLICT_COPY, snap.mods());
             for (SnapshotInfo s : manifest.snapshots()) {
                 if (s.pinned() && REASON_CONFLICT_COPY.equals(s.reason()) && s.deviceId().equals(device.deviceId())
                         && !s.id().equals(manifest.headSnapshotId())) {

@@ -236,6 +236,14 @@ Google. That's how the mod knows whether it's safe to replace a local copy, and 
 and the mod's own data. When a newer version is applied, the world and player data (`universe/`) are
 replaced; the world's settings files stay as they are on your device.
 
+**Mods.** Every upload records the mods enabled for the world, with their exact versions. When you open
+the world on another device, the mod installs the ones that are missing before the world loads, enables
+them for the world and loads them into the same session, so items and blocks from mods are never lost.
+Mods are downloaded from CurseForge, the same files the game's mod browser installs, and checked against
+the checksum recorded on your other device. A mod installed by hand (not from the mod browser) can't be
+downloaded: install it yourself. A world never opens with mods missing; if one can't be installed, the
+game goes back to the menu and tells you which. `/cloudsync download` installs a world's mods too.
+
 ## Your data and privacy
 
 - Your worlds are stored in **your** Google Drive, in a folder called **Hytale Cloud Saves**.

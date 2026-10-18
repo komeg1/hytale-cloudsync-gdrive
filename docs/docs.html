@@ -37,6 +37,7 @@
         <a href="#cmd-conflict">usecloud / keeplocal</a>
         <p>Guides</p>
         <a href="#how-it-works">How it works</a>
+        <a href="#mods">Mods</a>
         <a href="#devices">Several devices</a>
         <a href="#conflicts">Conflicts</a>
         <a href="#offline">Playing offline</a>
@@ -224,6 +225,18 @@
     <p>The world's whole save folder, except logs, telemetry, Hytale's own backup folder and the mod's own
       data. When a newer version is applied, the world and player data are replaced; the world's settings
       files stay as they are on your device.</p>
+    <h3 id="mods">Mods</h3>
+    <p>Every upload records the mods enabled for the world, with their exact versions. When you open the world
+      on another device, missing mods are installed before the world loads, enabled for the world and loaded
+      into the same session, so items and blocks from mods are never lost.</p>
+    <ul>
+      <li>Mods are downloaded from CurseForge, the same files the game's mod browser installs, and checked
+        against the checksum recorded on your other device.</li>
+      <li>A mod installed by hand (not from the mod browser) can't be downloaded: install it yourself.</li>
+      <li>A world never opens with mods missing. If one can't be installed, the game goes back to the menu
+        and tells you which.</li>
+      <li><a href="#cmd-download">download</a> installs a world's mods together with the world.</li>
+    </ul>
 
     <h2 id="devices">Several devices</h2>
     <p>Each device remembers which cloud version its copy of a world matches, and marks the world as changed
